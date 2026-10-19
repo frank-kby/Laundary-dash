@@ -1,0 +1,16 @@
+{
+  "name": "laundry-dash-e2e",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@sparticuz/chromium": "^153.0.0"
+  },
+  "private": true
+}

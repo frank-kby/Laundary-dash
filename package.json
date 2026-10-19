@@ -1,0 +1,20 @@
+{
+  "name": "laundry-dash",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Laundry Dash — laundry pickup & delivery PWA for Kigali",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "install:all": "npm ci --prefix server && npm ci --prefix web",
+    "build": "npm run build --prefix web && npm run build --prefix server",
+    "start": "npm start --prefix server",
+    "dev:server": "npm run dev --prefix server",
+    "dev:web": "npm run dev --prefix web",
+    "migrate": "npm run migrate --prefix server",
+    "seed": "npm run seed --prefix server",
+    "seed:demo": "npm run seed --prefix server -- --demo",
+    "typecheck": "npm run typecheck --prefix server && npm run typecheck --prefix web",
+    "test": "npm test --prefix server",
+    "test:e2e": "npm test --prefix e2e"
+  }
+}

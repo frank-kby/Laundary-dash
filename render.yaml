@@ -1,0 +1,50 @@
+# Render Blueprint — one free web service serving the API and the PWA.
+# The database is NOT created here: Render's free Postgres is deleted after 30 days, so use Neon's free plan
+# and paste its connection string into DATABASE_URL in the Render dashboard.
+services:
+  - type: web
+    name: laundry-dash
+    runtime: node
+    plan: free
+    region: frankfurt          # closest Render region to Kigali; verify latency
+    buildCommand: npm run install:all && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: RUN_MIGRATIONS_ON_START
+        value: "true"
+      - key: SEED_CATALOGUE_IF_EMPTY   # first start only: sample catalogue, zones, plans (no demo users)
+        value: "true"
+      - key: AUTO_SLOT_DAYS            # keep pickup slots open 14 days ahead (Mon-Sat 08-18, 2h, cap 4)
+        value: "14"
+      - key: BOOTSTRAP_ADMIN_NAME      # first admin is created on start if no admin exists yet
+        sync: false
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD  # 12+ chars; delete this variable after your first sign-in
+        sync: false
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DATABASE_URL
+        sync: false            # set in dashboard (Neon pooled URL with ?sslmode=require)
+      - key: APP_ORIGIN
+        sync: false            # e.g. https://laundry-dash.onrender.com
+      - key: EMAIL_PROVIDER
+        value: none
+      - key: PHOTO_STORAGE
+        value: none
+      - key: PAYMENT_PROVIDER
+        value: none
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true
+      - key: SUPPORT_PHONE
+        sync: false
+      - key: SUPPORT_WHATSAPP
+        sync: false

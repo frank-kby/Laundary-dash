@@ -1,0 +1,762 @@
+openapi: 3.1.0
+info:
+  title: Laundry Dash API
+  version: 1.0.0
+  description: |
+    REST API for the Laundry Dash PWA (Kigali). All money is integer RWF. All timestamps are UTC ISO-8601.
+
+    **Authentication:** server-side session in an HttpOnly, SameSite=Lax cookie (`ld_sid`, or `__Host-ld_sid` in production)
+    set by `/auth/register` or `/auth/login`.
+
+    **CSRF:** every non-GET request must send `X-Requested-With: LaundryDash`; a foreign `Origin` is rejected.
+    Provider webhooks are exempt and authenticate by signature/secret.
+
+    **Idempotency:** `POST /bookings` and `POST /payments` require an `Idempotency-Key` header (8–100 chars). Retrying with
+    the same key and body returns the original response (`Idempotent-Replayed: true`); same key + different body → 422.
+
+    **Errors:** `{ "error": { "code": "SLOT_UNAVAILABLE", "message": "…", "details": … } }`.
+    Validation errors use code `VALIDATION_ERROR` with `details: [{ path, message }]`.
+
+    **Pagination:** `page` (≥1) and `pageSize` (1–100) query params → `{ items, page, pageSize, total }`.
+
+    Customer resources are always scoped to the signed-in user; other users' resources return 404.
+    API responses carry `Cache-Control: no-store, private`.
+servers:
+  - url: /api/v1
+tags:
+  - name: Auth
+  - name: Me
+  - name: Catalogue
+  - name: Bookings
+  - name: Orders
+  - name: Subscriptions
+  - name: Payments
+  - name: Admin
+    description: Requires STAFF or ADMIN. Endpoints marked "ADMIN only" require ADMIN.
+  - name: Rider
+    description: Requires RIDER. Only the rider's own tasks are visible.
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: ld_sid
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    PageSize: { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 100 } }
+    Csrf: { name: X-Requested-With, in: header, required: true, schema: { type: string, enum: [LaundryDash] } }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoContent: { description: No content }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, examples: [VALIDATION_ERROR, UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, INVALID_TRANSITION, SLOT_UNAVAILABLE, RATE_LIMITED] }
+            message: { type: string }
+            details: {}
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fullName: { type: string }
+        email: { type: [string, 'null'] }
+        phone: { type: [string, 'null'], description: E.164, e.g. +250788123456 }
+        role: { type: string, enum: [CUSTOMER, RIDER, STAFF, ADMIN] }
+        preferredLanguage: { type: string, enum: [en, rw] }
+        isDemo: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    Address:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string }
+        serviceAreaId: { type: string, format: uuid }
+        serviceAreaName: { type: string }
+        street: { type: string }
+        landmark: { type: string }
+        details: { type: string }
+        contactPhone: { type: [string, 'null'] }
+        latitude: { type: [number, 'null'] }
+        longitude: { type: [number, 'null'] }
+    AddressInput:
+      type: object
+      required: [label, serviceAreaId]
+      properties:
+        label: { type: string, maxLength: 40 }
+        serviceAreaId: { type: string, format: uuid }
+        street: { type: string }
+        landmark: { type: string }
+        details: { type: string }
+        contactPhone: { type: [string, 'null'] }
+        latitude: { type: [number, 'null'] }
+        longitude: { type: [number, 'null'] }
+    WardrobeItem:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [CLOTHES, SHOES] }
+        categoryId: { type: string, format: uuid }
+        categoryCode: { type: string }
+        name: { type: string }
+        color: { type: string }
+        quantity: { type: integer }
+        careNotes: { type: string }
+        hasPhoto: { type: boolean }
+        photoUrl: { type: [string, 'null'], description: Authenticated URL; owner only }
+    WardrobeInput:
+      type: object
+      required: [categoryId, name]
+      properties:
+        categoryId: { type: string, format: uuid }
+        name: { type: string, maxLength: 80 }
+        color: { type: string }
+        quantity: { type: integer, minimum: 1, maximum: 100 }
+        careNotes: { type: string }
+    Service:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        nameEn: { type: string }
+        nameRw: { type: string }
+        kind: { type: string, enum: [CLOTHES, SHOES] }
+        pricingUnit: { type: string, enum: [ITEM, KG] }
+        unitPrice: { type: integer }
+        minCharge: { type: integer }
+        turnaroundHours: { type: integer }
+        categoryPrices: { type: array, items: { type: object, properties: { categoryId: { type: string }, unitPrice: { type: integer } } } }
+    Area:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        district: { type: string, enum: [Gasabo, Kicukiro, Nyarugenge] }
+        landmarks: { type: array, items: { type: string } }
+        pickupFee: { type: integer }
+        deliveryFee: { type: integer }
+    Slot:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        remaining: { type: integer }
+        available: { type: boolean }
+    BookingItem:
+      type: object
+      required: [quantity, serviceId]
+      description: Either `wardrobeItemId`, or `name` + `categoryId` (manual entry).
+      properties:
+        wardrobeItemId: { type: string, format: uuid }
+        name: { type: string }
+        categoryId: { type: string, format: uuid }
+        color: { type: string }
+        careNotes: { type: string }
+        quantity: { type: number, description: Items (integer) for ITEM services; estimated kg (0.5–50) for KG services }
+        serviceId: { type: string, format: uuid }
+        saveToWardrobe: { type: boolean, default: false }
+    BookingInput:
+      type: object
+      required: [items, pickupSlotId, deliveryPreference]
+      properties:
+        items: { type: array, minItems: 1, maxItems: 50, items: { $ref: '#/components/schemas/BookingItem' } }
+        pickupAddressId: { type: string, format: uuid }
+        pickupAddress: { $ref: '#/components/schemas/AddressInput' }
+        pickupSlotId: { type: string, format: uuid }
+        deliveryPreference: { type: string, enum: [DELIVER_TO_ADDRESS, COLLECT_AT_SHOP] }
+        deliveryAddressId: { type: string, format: uuid, description: Omit to deliver to the pickup address }
+        notes: { type: string, maxLength: 500 }
+    Pricing:
+      type: object
+      description: Computed server-side only. Client-supplied totals are ignored.
+      properties:
+        lines: { type: array, items: { type: object } }
+        minimumChargeTopUps: { type: array, items: { type: object } }
+        itemsSubtotal: { type: integer }
+        pickupFee: { type: integer }
+        deliveryFee: { type: integer }
+        feesWaived: { type: integer }
+        adjustments: { type: array, items: { type: object, properties: { description: { type: string }, amount: { type: integer } } } }
+        subscriptionUnitsUsed: { type: number }
+        subscriptionTripsUsed: { type: integer }
+        total: { type: integer }
+        currency: { type: string, const: RWF }
+    OrderStatus:
+      type: string
+      enum: [PENDING_CONFIRMATION, CONFIRMED, PICKUP_SCHEDULED, PICKED_UP, RECEIVED, INSPECTION_REQUIRED, AWAITING_APPROVAL, PROCESSING, READY_FOR_DELIVERY, OUT_FOR_DELIVERY, DELIVERED, CANCELLED, ON_HOLD]
+    OrderPaymentStatus:
+      type: string
+      enum: [UNPAID, PARTIALLY_PAID, PAID, REFUNDED, PARTIALLY_REFUNDED]
+    OrderSummary:
+      type: object
+      properties:
+        id: { type: string }
+        bookingId: { type: string }
+        reference: { type: string, examples: [LD-261019-7KQ4M] }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        paymentStatus: { $ref: '#/components/schemas/OrderPaymentStatus' }
+        total: { type: integer }
+        itemCount: { type: integer }
+    Order:
+      type: object
+      description: Composite booking + order view. Staff responses add `customer`, `allowedNextStatuses`, `issues`, `riderTasks`.
+      properties:
+        id: { type: string }
+        bookingId: { type: string }
+        reference: { type: string }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        holdFromStatus: { type: [string, 'null'] }
+        paymentStatus: { $ref: '#/components/schemas/OrderPaymentStatus' }
+        estimatedTotal: { type: integer }
+        agreedTotal: { type: integer }
+        finalTotal: { type: [integer, 'null'] }
+        balance: { type: object, properties: { due: { type: integer }, paid: { type: integer }, pending: { type: integer }, balance: { type: integer } } }
+        pricing: { $ref: '#/components/schemas/Pricing' }
+        pickupSlot: { type: object }
+        pickupAddress: { type: object, description: Snapshot at booking time }
+        deliveryPreference: { type: string }
+        deliveryAddress: { type: [object, 'null'] }
+        items: { type: array, items: { type: object, description: Snapshot + staff-recorded receivedQuantity / measuredWeightKg / conditionNotes } }
+        events: { type: array, items: { type: object } }
+        pendingRevision: { type: [object, 'null'] }
+        revisions: { type: array, items: { type: object } }
+        payments: { type: array, items: { $ref: '#/components/schemas/Payment' } }
+    Payment:
+      type: object
+      properties:
+        id: { type: string }
+        orderId: { type: [string, 'null'] }
+        subscriptionId: { type: [string, 'null'] }
+        amount: { type: integer }
+        currency: { type: string }
+        method: { type: string, enum: [MOBILE_MONEY, CASH, MANUAL_MOBILE_MONEY, BANK_TRANSFER] }
+        provider: { type: [string, 'null'] }
+        testMode: { type: boolean, description: True for simulator/sandbox payments — no real money }
+        status: { type: string, enum: [PENDING, SUCCESSFUL, FAILED, CANCELLED, REFUNDED, PARTIALLY_REFUNDED] }
+        refundedAmount: { type: integer }
+        payerMsisdnMasked: { type: [string, 'null'] }
+    Plan:
+      type: object
+      properties:
+        id: { type: string }
+        code: { type: string }
+        nameEn: { type: string }
+        nameRw: { type: string }
+        price: { type: integer }
+        validityDays: { type: integer }
+        allowanceUnit: { type: string, enum: [ITEM, KG] }
+        allowanceQuantity: { type: number }
+        freeTrips: { type: integer }
+        overageDiscountPercent: { type: integer }
+        includedServiceIds: { type: array, items: { type: string } }
+    Subscription:
+      type: object
+      properties:
+        id: { type: string }
+        planId: { type: string }
+        plan: { type: object, description: Terms as purchased (snapshot) }
+        status: { type: string, enum: [PENDING_PAYMENT, ACTIVE, EXPIRED, CANCELLED] }
+        startsAt: { type: [string, 'null'] }
+        endsAt: { type: [string, 'null'] }
+    RiderTask:
+      type: object
+      description: Contains no prices, payment data or customer email.
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [PICKUP, DELIVERY] }
+        status: { type: string, enum: [ASSIGNED, EN_ROUTE, COMPLETED, FAILED, CANCELLED] }
+        orderReference: { type: string }
+        windowStart: { type: [string, 'null'] }
+        windowEnd: { type: [string, 'null'] }
+        customerName: { type: string }
+        contactPhone: { type: [string, 'null'] }
+        address: { type: [object, 'null'] }
+        itemCount: { type: integer }
+    ManualPayment:
+      type: object
+      required: [amount, method]
+      properties:
+        amount: { type: integer, minimum: 1 }
+        method: { type: string, enum: [CASH, MANUAL_MOBILE_MONEY, BANK_TRANSFER] }
+        reference: { type: string, description: Required unless CASH }
+        note: { type: string }
+
+security:
+  - session: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Register with email+password or phone+password (no OTP). Signs the user in.
+      parameters: [{ $ref: '#/components/parameters/Csrf' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fullName, password]
+              properties:
+                fullName: { type: string }
+                email: { type: string }
+                phone: { type: string, description: Any Rwandan format; normalized to E.164 }
+                password: { type: string, minLength: 8, maxLength: 128 }
+                preferredLanguage: { type: string, enum: [en, rw] }
+                keepMeLoggedIn: { type: boolean, default: false }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: object, properties: { user: { $ref: '#/components/schemas/User' } } } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Sign in with email or phone + password.
+      description: '`keepMeLoggedIn: true` sets a persistent 30-day cookie; otherwise a browser-session cookie with 12 h idle / 24 h absolute server-side expiry. Rate limited per IP+identifier.'
+      parameters: [{ $ref: '#/components/parameters/Csrf' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier: { type: string }
+                password: { type: string }
+                keepMeLoggedIn: { type: boolean, default: false }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { user: { $ref: '#/components/schemas/User' } } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Deletes the server-side session and clears the cookie.
+      parameters: [{ $ref: '#/components/parameters/Csrf' }]
+      responses: { '204': { $ref: '#/components/responses/NoContent' } }
+  /auth/password-reset/request:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Request a reset email. Same response whether or not the account exists.
+      parameters: [{ $ref: '#/components/parameters/Csrf' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string } } } } } }
+      responses:
+        '202': { description: Accepted, content: { application/json: { schema: { type: object, properties: { message: { type: string }, emailConfigured: { type: boolean } } } } } }
+  /auth/password-reset/confirm:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Set a new password with a single-use 30-minute token. Signs out all sessions.
+      parameters: [{ $ref: '#/components/parameters/Csrf' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [token, password], properties: { token: { type: string }, password: { type: string } } } } } }
+      responses:
+        '200': { description: OK }
+        '400': { $ref: '#/components/responses/Error' }
+
+  /me:
+    get:
+      tags: [Me]
+      summary: Current user
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { user: { $ref: '#/components/schemas/User' } } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Me]
+      summary: Update profile. Changing email, phone or password requires currentPassword.
+      parameters: [{ $ref: '#/components/parameters/Csrf' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName: { type: string }
+                preferredLanguage: { type: string, enum: [en, rw] }
+                email: { type: [string, 'null'] }
+                phone: { type: [string, 'null'] }
+                currentPassword: { type: string }
+                newPassword: { type: string }
+      responses:
+        '200': { description: OK }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /me/addresses:
+    get: { tags: [Me], summary: "List addresses", responses: { '200': { description: OK } } }
+    post:
+      tags: [Me]
+      summary: Create address (max 10)
+      parameters: [{ $ref: '#/components/parameters/Csrf' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AddressInput' } } } }
+      responses: { '201': { description: Created }, '400': { $ref: '#/components/responses/Error' } }
+  /me/addresses/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Me], summary: "Get address", responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/Error' } } }
+    patch:
+      tags: [Me]
+      summary: Update address
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/AddressInput' } } } }
+      responses: { '200': { description: OK } }
+    delete: { tags: [Me], summary: "Soft-delete address (bookings keep their snapshot)", responses: { '204': { $ref: '#/components/responses/NoContent' } } }
+  /me/wardrobe:
+    get:
+      tags: [Me]
+      summary: List wardrobe items
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }, { name: kind, in: query, schema: { type: string, enum: [CLOTHES, SHOES] } }]
+      responses: { '200': { description: Paged WardrobeItem } }
+    post:
+      tags: [Me]
+      summary: Create wardrobe item
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/WardrobeInput' } } } }
+      responses: { '201': { description: Created } }
+  /me/wardrobe/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Me], summary: "Get item", responses: { '200': { description: OK } } }
+    patch:
+      tags: [Me]
+      summary: Update item. Never changes existing orders (they hold a snapshot).
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/WardrobeInput' } } } }
+      responses: { '200': { description: OK } }
+    delete: { tags: [Me], summary: "Delete item", responses: { '204': { $ref: '#/components/responses/NoContent' } } }
+  /me/wardrobe/{id}/photo:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Me], summary: "Owner-only photo (302 to a 5-minute signed URL, or the bytes)", responses: { '200': { description: Image }, '302': { description: Redirect to signed URL }, '404': { $ref: '#/components/responses/Error' } } }
+    put:
+      tags: [Me]
+      summary: Upload photo (JPEG/PNG/WebP, ≤3 MB, type checked by magic bytes)
+      requestBody: { content: { multipart/form-data: { schema: { type: object, properties: { photo: { type: string, format: binary } } } } } }
+      responses: { '200': { description: OK }, '503': { description: Photo storage not configured } }
+    delete: { tags: [Me], summary: "Remove photo", responses: { '204': { $ref: '#/components/responses/NoContent' } } }
+  /me/notifications:
+    get: { tags: [Me], summary: "In-app notifications (paged, with unread count)", responses: { '200': { description: OK } } }
+  /me/notifications/read-all:
+    post: { tags: [Me], summary: "Mark all read", responses: { '204': { $ref: '#/components/responses/NoContent' } } }
+
+  /config:
+    get: { tags: [Catalogue], security: [], summary: "Feature flags (email reset, photos, Mobile Money test/live) and support contacts", responses: { '200': { description: OK } } }
+  /services:
+    get:
+      tags: [Catalogue]
+      security: []
+      summary: Active services and garment categories
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Service' } }, categories: { type: array } } } } } } }
+  /service-areas:
+    get:
+      tags: [Catalogue]
+      security: []
+      summary: Kigali service zones with landmarks and fees
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Area' } } } } } } } }
+  /pickup-slots:
+    get:
+      tags: [Catalogue]
+      security: []
+      summary: Upcoming pickup slots (starting ≥60 min from now) with remaining capacity
+      parameters: [{ name: days, in: query, schema: { type: integer, minimum: 1, maximum: 14, default: 7 } }]
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Slot' } } } } } } } }
+
+  /bookings/quote:
+    post:
+      tags: [Bookings]
+      summary: Price estimate including pickup/delivery fees and subscription coverage. No side effects.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BookingInput' } } } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { pricing: { $ref: '#/components/schemas/Pricing' } } } } } } }
+  /bookings:
+    get:
+      tags: [Bookings]
+      summary: My bookings
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }, { name: scope, in: query, schema: { type: string, enum: [active, past, all] } }]
+      responses: { '200': { description: Paged OrderSummary } }
+    post:
+      tags: [Bookings]
+      summary: Create a booking. Atomically reserves slot capacity; 409 SLOT_UNAVAILABLE when full.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/Csrf' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BookingInput' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: object, properties: { order: { $ref: '#/components/schemas/Order' } } } } } }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /bookings/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Bookings], summary: "Booking detail (by booking id)", responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/Error' } } }
+  /bookings/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Bookings]
+      summary: Cancel before pickup. Releases the slot.
+      requestBody: { content: { application/json: { schema: { type: object, properties: { reason: { type: string } } } } } }
+      responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error' } }
+  /bookings/{id}/reschedule:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Bookings]
+      summary: Move pickup to another slot (max 3 times, before pickup)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [pickupSlotId], properties: { pickupSlotId: { type: string } } } } } }
+      responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error' } }
+
+  /orders/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Orders], summary: "Order detail (by order id)", responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { order: { $ref: '#/components/schemas/Order' } } } } } }, '404': { $ref: '#/components/responses/Error' } } }
+  /orders/{id}/events:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Orders], summary: "Customer-visible order history", responses: { '200': { description: OK } } }
+  /orders/{id}/price-approval:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Orders]
+      summary: Approve or reject a pending price revision. Approve → RECEIVED (ready to process); reject → INSPECTION_REQUIRED and extra charges voided.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [revisionId, decision], properties: { revisionId: { type: string }, decision: { type: string, enum: [APPROVE, REJECT] }, note: { type: string } } } } } }
+      responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error' } }
+
+  /subscription-plans:
+    get: { tags: [Subscriptions], security: [], summary: "Active plans", responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Plan' } } } } } } } } }
+  /subscriptions/current:
+    get: { tags: [Subscriptions], summary: "Active subscription with remaining allowance, upcoming/pending ones, usage and payments", responses: { '200': { description: OK } } }
+  /subscriptions:
+    post:
+      tags: [Subscriptions]
+      summary: Start a purchase (PENDING_PAYMENT). Activates when its payment succeeds (Mobile Money or staff-recorded).
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [planId], properties: { planId: { type: string } } } } } }
+      responses: { '201': { description: Created }, '409': { $ref: '#/components/responses/Error' } }
+  /subscriptions/{id}/renew:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post: { tags: [Subscriptions], summary: "Create a renewal (starts when the current period ends)", responses: { '201': { description: Created } } }
+  /subscriptions/{id}/cancel-pending:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post: { tags: [Subscriptions], summary: "Cancel an unpaid purchase", responses: { '204': { $ref: '#/components/responses/NoContent' } } }
+
+  /payments:
+    get: { tags: [Payments], summary: "My payment history", responses: { '200': { description: Paged Payment } } }
+    post:
+      tags: [Payments]
+      summary: Start a Mobile Money request-to-pay for an order balance or a pending subscription. Amount is computed server-side.
+      description: Returns 409 PAYMENT_PROVIDER_NOT_CONFIGURED when no provider is set. The customer approves on their own phone; the app never collects a PIN.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/Csrf' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [msisdn], properties: { orderId: { type: string }, subscriptionId: { type: string }, msisdn: { type: string } } } } } }
+      responses: { '201': { description: Created (status PENDING or FAILED) }, '409': { $ref: '#/components/responses/Error' } }
+  /payments/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Payments], summary: "Payment status. A PENDING provider payment is re-verified with the provider (throttled to every 15 s).", responses: { '200': { description: OK } } }
+  /payments/{id}/simulate:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Payments]
+      summary: TEST MODE only (PAYMENT_PROVIDER=simulator). Decide the simulated phone prompt outcome; delivered through the normal webhook path.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { outcome: { type: string, enum: [SUCCESSFUL, FAILED] } } } } } }
+      responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error' } }
+  /payments/webhooks/{provider}:
+    parameters: [{ name: provider, in: path, required: true, schema: { type: string, enum: [simulator, mtn_momo] } }]
+    post:
+      tags: [Payments]
+      security: []
+      summary: Provider callback.
+      description: |
+        Authenticated by HMAC (`X-LD-Timestamp`, `X-LD-Signature` = hex HMAC-SHA256 of `timestamp.body`, 5-min tolerance) for the simulator,
+        or a secret `token` query parameter for MTN MoMo (whose callbacks are not signed). The body only identifies the payment:
+        the outcome is always re-fetched from the provider. Each provider event is applied at most once; terminal payments never change.
+      responses: { '200': { description: Processed or duplicate }, '202': { description: Unknown reference (acknowledged) }, '401': { $ref: '#/components/responses/Error' } }
+
+  /admin/orders:
+    get:
+      tags: [Admin]
+      summary: Search/filter orders
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/OrderStatus' } }
+        - { name: q, in: query, schema: { type: string }, description: 'Reference, name, phone or email' }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: areaId, in: query, schema: { type: string } }
+        - { name: openIssues, in: query, schema: { type: string, enum: ['true', 'false'] } }
+      responses: { '200': { description: Paged OrderSummary } }
+  /admin/orders/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Admin], summary: "Staff order view", responses: { '200': { description: OK } } }
+  /admin/orders/{id}/status:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Admin]
+      summary: Change status (validated against the state machine and guards). Note required for ON_HOLD/CANCELLED.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [status], properties: { status: { $ref: '#/components/schemas/OrderStatus' }, note: { type: string } } } } } }
+      responses: { '200': { description: OK }, '409': { description: INVALID_TRANSITION }, '422': { description: Guard failed (INSPECTION_REQUIRED, PRICE_APPROVAL_PENDING, PRICE_APPROVAL_REQUIRED, DELIVERY_REQUIRES_RIDER) } }
+  /admin/orders/{id}/inspection:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Admin]
+      summary: Record received quantities/weight/condition, add found items and extra charges; re-prices and requests approval if the total rises.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items: { type: array, items: { type: object, properties: { id: { type: string }, receivedQuantity: { type: integer }, measuredWeightKg: { type: number }, conditionNotes: { type: string } } } }
+                addItems: { type: array, items: { type: object } }
+                adjustments: { type: array, items: { type: object, properties: { description: { type: string }, amount: { type: integer } } } }
+                reason: { type: string }
+      responses: { '200': { description: OK (requiresApproval flag) } }
+  /admin/orders/{id}/price-revisions:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Admin]
+      summary: Propose extra chargeable work (or discount) before processing
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [adjustments, reason], properties: { adjustments: { type: array, items: { type: object } }, reason: { type: string } } } } } }
+      responses: { '201': { description: Created } }
+  /admin/orders/{id}/price-revisions/{revisionId}/decision:
+    parameters: [{ $ref: '#/components/parameters/Id' }, { name: revisionId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [Admin]
+      summary: Record a customer decision given by phone, WhatsApp or in person (audited)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [decision, channel, note], properties: { decision: { type: string, enum: [APPROVE, REJECT] }, channel: { type: string, enum: [PHONE, IN_PERSON, WHATSAPP] }, note: { type: string } } } } } }
+      responses: { '200': { description: OK } }
+  /admin/orders/{id}/price-preview:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Admin], summary: "Recomputed price from current data", responses: { '200': { description: OK } } }
+  /admin/orders/{id}/items/{itemId}/photo:
+    parameters: [{ $ref: '#/components/parameters/Id' }, { name: itemId, in: path, required: true, schema: { type: string } }]
+    get: { tags: [Admin], summary: "Photo snapshot of an order item", responses: { '200': { description: Image }, '302': { description: Signed URL } } }
+  /admin/orders/{id}/issues:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Admin]
+      summary: Record failed pickup/delivery, dispute, delay, payment uncertainty, damage
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [type, description], properties: { type: { type: string, enum: [FAILED_PICKUP, FAILED_DELIVERY, GARMENT_DISPUTE, DELAY, PAYMENT_UNCERTAIN, DAMAGE, OTHER] }, description: { type: string }, putOnHold: { type: boolean }, notifyCustomer: { type: boolean } } } } } }
+      responses: { '201': { description: Created } }
+  /admin/issues/{id}/resolve:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post: { tags: [Admin], summary: "Resolve an issue", requestBody: { content: { application/json: { schema: { type: object, properties: { resolution: { type: string } } } } } }, responses: { '200': { description: OK } } }
+  /admin/riders:
+    get: { tags: [Admin], summary: "Active riders with open task counts", responses: { '200': { description: OK } } }
+  /admin/orders/{id}/rider-tasks:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Admin]
+      summary: Assign (or re-assign) a pickup or delivery task
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [type, riderId], properties: { type: { type: string, enum: [PICKUP, DELIVERY] }, riderId: { type: string }, instructions: { type: string } } } } } }
+      responses: { '201': { description: Created } }
+  /admin/orders/{id}/payments/manual:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Admin]
+      summary: Record an authorized cash / manual Mobile Money / bank payment (≤ outstanding balance; audited)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ManualPayment' } } } }
+      responses: { '201': { description: Created }, '422': { description: OVERPAYMENT } }
+  /admin/payments:
+    get: { tags: [Admin], summary: "Payments list", parameters: [{ name: status, in: query, schema: { type: string } }], responses: { '200': { description: OK } } }
+  /admin/payments/{id}/check-status:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post: { tags: [Admin], summary: "Re-verify a pending provider payment", responses: { '200': { description: OK } } }
+  /admin/payments/{id}/refunds:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Admin]
+      summary: ADMIN only. Record a (manual) refund; full → REFUNDED, partial → PARTIALLY_REFUNDED
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [amount, method, reason], properties: { amount: { type: integer }, method: { type: string, enum: [CASH, MANUAL_MOBILE_MONEY, BANK_TRANSFER] }, reason: { type: string }, reference: { type: string } } } } } }
+      responses: { '201': { description: Created }, '403': { $ref: '#/components/responses/Error' } }
+  /admin/subscriptions:
+    get: { tags: [Admin], summary: "Subscriptions (pending first)", responses: { '200': { description: OK } } }
+  /admin/subscriptions/{id}/payments/manual:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post: { tags: [Admin], summary: "Record payment of the exact plan price and activate", requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/ManualPayment' } } } }, responses: { '201': { description: Created } } }
+  /admin/services:
+    get: { tags: [Admin], summary: "All services", responses: { '200': { description: OK } } }
+    post: { tags: [Admin], summary: "ADMIN only. Create service", responses: { '201': { description: Created } } }
+  /admin/services/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    put: { tags: [Admin], summary: "ADMIN only. Update service and per-category prices (audited; existing orders unaffected)", responses: { '200': { description: OK } } }
+  /admin/service-areas:
+    get: { tags: [Admin], summary: "All service areas", responses: { '200': { description: OK } } }
+    post: { tags: [Admin], summary: "ADMIN only. Create area", responses: { '201': { description: Created } } }
+  /admin/service-areas/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    put: { tags: [Admin], summary: "ADMIN only. Update area", responses: { '200': { description: OK } } }
+  /admin/categories:
+    get: { tags: [Admin], summary: "Garment categories", responses: { '200': { description: OK } } }
+    post: { tags: [Admin], summary: "ADMIN only. Create category", responses: { '201': { description: Created } } }
+  /admin/categories/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    put: { tags: [Admin], summary: "ADMIN only. Update category", responses: { '200': { description: OK } } }
+  /admin/subscription-plans:
+    get: { tags: [Admin], summary: "All plans", responses: { '200': { description: OK } } }
+    post: { tags: [Admin], summary: "ADMIN only. Create plan", responses: { '201': { description: Created } } }
+  /admin/subscription-plans/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    put: { tags: [Admin], summary: "ADMIN only. Update plan (existing subscriptions keep purchased terms)", responses: { '200': { description: OK } } }
+  /admin/pickup-slots:
+    get: { tags: [Admin], summary: "Upcoming slots with bookings", parameters: [{ name: days, in: query, schema: { type: integer } }], responses: { '200': { description: OK } } }
+  /admin/pickup-slots/generate:
+    post:
+      tags: [Admin]
+      summary: Create slots in Kigali time (idempotent per start/end)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { days: { type: integer }, startHour: { type: integer }, endHour: { type: integer }, slotMinutes: { type: integer, enum: [60, 90, 120, 180] }, capacity: { type: integer }, weekdays: { type: array, items: { type: integer } } } } } } }
+      responses: { '201': { description: Created } }
+  /admin/pickup-slots/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch: { tags: [Admin], summary: "Change capacity (not below booked) or open/close a slot", responses: { '200': { description: OK } } }
+  /admin/users:
+    get: { tags: [Admin], summary: "People (filter by role, search)", responses: { '200': { description: OK } } }
+    post: { tags: [Admin], summary: "ADMIN only. Create staff/rider/admin/customer account", responses: { '201': { description: Created } } }
+  /admin/users/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch: { tags: [Admin], summary: "ADMIN only. Change role or disable; revokes the user's sessions; audited", responses: { '200': { description: OK } } }
+  /admin/users/{id}/password-reset-link:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Admin]
+      summary: ADMIN only. Staff-assisted reset for phone-only customers/riders after identity verification (single use, 30 min, audited)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [verificationNote], properties: { verificationNote: { type: string } } } } } }
+      responses: { '201': { description: Link issued } }
+  /admin/audit-logs:
+    get: { tags: [Admin], summary: "ADMIN only. Audit trail", responses: { '200': { description: OK } } }
+  /admin/reports/summary:
+    get: { tags: [Admin], summary: "Totals for a date range", parameters: [{ name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }], responses: { '200': { description: OK } } }
+  /admin/reports/orders.csv:
+    get: { tags: [Admin], summary: "Orders CSV (formula-injection safe)", responses: { '200': { description: CSV, content: { text/csv: {} } } } }
+  /admin/reports/payments.csv:
+    get: { tags: [Admin], summary: "Payments CSV", responses: { '200': { description: CSV, content: { text/csv: {} } } } }
+
+  /rider/tasks:
+    get:
+      tags: [Rider]
+      summary: My tasks
+      parameters: [{ name: scope, in: query, schema: { type: string, enum: [active, done] } }]
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/RiderTask' } } } } } } } }
+  /rider/tasks/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Rider], summary: "One of my tasks", responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/Error' } } }
+  /rider/tasks/{id}/events:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Rider]
+      summary: START, COMPLETE or FAIL a task. COMPLETE pickup → PICKED_UP; delivery → DELIVERED. FAIL records an issue and returns the order for re-assignment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [START, COMPLETE, FAIL] }
+                note: { type: string }
+                failureReason: { type: string, enum: [CUSTOMER_UNREACHABLE, CUSTOMER_ABSENT, ADDRESS_NOT_FOUND, CUSTOMER_REFUSED, ITEMS_NOT_READY, OTHER] }
+                collectedItemCount: { type: integer }
+      responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error' } }
