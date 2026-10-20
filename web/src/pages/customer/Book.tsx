@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { newKey, post } from '../../api';
 import { unitPriceFor, useCatalog, useLocalName } from '../../catalog';
 import { useI18n } from '../../i18n';
 import type { Address, OrderDetail, Paged, Pricing, Service, Slot, WardrobeItem } from '../../types';
 import { PageTitle } from '../../components/Layout';
-import { Button, Checkbox, ErrorBox, Loading, Notice, SelectField, TextArea, TextField, useLoad } from '../../components/ui';
+import { Button, Checkbox, ColorDot, ErrorBox, Loading, Notice, SelectField, TextArea, TextField, useLoad, useToast } from '../../components/ui';
 
 interface DraftItem {
   key: string;
@@ -69,12 +69,12 @@ export function SlotPicker({ value, onChange, slots }: { value: string; onChange
   );
 }
 
-function ItemAdder({ services, onAdd, wardrobe }: { services: Service[]; onAdd: (d: DraftItem) => void; wardrobe: WardrobeItem[] }) {
+function ItemAdder({ services, onAdd, wardrobe, initialWid = '' }: { services: Service[]; onAdd: (d: DraftItem) => void; wardrobe: WardrobeItem[]; initialWid?: string }) {
   const { t, money } = useI18n();
   const name = useLocalName();
   const { catalog } = useCatalog();
-  const [mode, setMode] = useState<'manual' | 'wardrobe'>(wardrobe.length ? 'wardrobe' : 'manual');
-  const [wid, setWid] = useState('');
+  const [mode, setMode] = useState<'manual' | 'wardrobe'>(wardrobe.length || initialWid ? 'wardrobe' : 'manual');
+  const [wid, setWid] = useState(initialWid);
   const [desc, setDesc] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [serviceId, setServiceId] = useState('');
@@ -117,10 +117,18 @@ function ItemAdder({ services, onAdd, wardrobe }: { services: Service[]; onAdd: 
         <button type="button" className={mode === 'manual' ? 'on' : ''} aria-pressed={mode === 'manual'} onClick={() => setMode('manual')}>{t('book.addManual')}</button>
       </div>
       {mode === 'wardrobe' ? (
+        <>
         <SelectField label={t('book.fromWardrobe')} value={wid} onChange={(e) => setWid(e.target.value)}>
           <option value="">—</option>
           {wardrobe.map((x) => <option key={x.id} value={x.id}>{x.name}{x.color ? ` (${x.color})` : ''}</option>)}
         </SelectField>
+        {w && (
+          <div className="item-line small">
+            {w.photoUrl ? <img src={w.photoUrl} alt="" width={44} height={44} style={{ borderRadius: 10, objectFit: 'cover' }} /> : <ColorDot hex={w.colorHex} name={w.color} size={18} />}
+            <span>{w.name}{w.careNotes ? `: ${w.careNotes}` : ''}</span>
+          </div>
+        )}
+        </>
       ) : (
         <>
           <TextField label={t('wardrobe.name')} placeholder={t('wardrobe.namePlaceholder')} value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={80} />
@@ -162,6 +170,9 @@ function ItemAdder({ services, onAdd, wardrobe }: { services: Service[]; onAdd: 
 export function BookPage() {
   const { t, money } = useI18n();
   const nav = useNavigate();
+  const toast = useToast();
+  const [params] = useSearchParams();
+  const preselect = params.get('wardrobe') ?? '';
   const local = useLocalName();
   const { catalog, error: catErr, reload: catReload } = useCatalog();
   const wardrobe = useLoad<Paged<WardrobeItem>>('/me/wardrobe?pageSize=100');
@@ -219,8 +230,14 @@ export function BookPage() {
   if (done) {
     return (
       <div className="stack done">
-        <h1>{t('book.done')}</h1>
-        <p>{t('book.doneBody', { ref: done.reference })}</p>
+        <svg className="done-check" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="46" />
+          <path d="M30 52 L44 65 L71 37" />
+        </svg>
+        <h1>{t('book.doneTitle')}</h1>
+        <p className="lede">{t('book.done')}</p>
+        <p><span className="done-ref">{done.reference}</span></p>
+        <p className="muted">{t('book.doneBody', { ref: done.reference })}</p>
         <Link className="btn btn-primary btn-block" to={`/orders/${done.id}`}>{t('book.viewOrder')}</Link>
       </div>
     );
@@ -239,6 +256,7 @@ export function BookPage() {
     try {
       const r = await post<{ order: OrderDetail }>('/bookings', payload, idemKey.current);
       setDone(r.order);
+      toast(t('book.done'));
     } catch (e) {
       setError(e);
       slots.reload();
@@ -274,7 +292,7 @@ export function BookPage() {
               </ul>
             </section>
           )}
-          <ItemAdder services={catalog.services} wardrobe={wardrobe.data?.items ?? []} onAdd={(d) => setItems([...items, d])} />
+          {wardrobe.data ? <ItemAdder services={catalog.services} wardrobe={wardrobe.data.items} initialWid={wardrobe.data.items.some((x) => x.id === preselect) ? preselect : ''} onAdd={(d) => setItems([...items, d])} /> : <Loading block rows={1} />}
           {items.length === 0 && <p className="muted">{t('book.noItems')}</p>}
         </>
       )}

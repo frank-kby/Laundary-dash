@@ -38,8 +38,8 @@ services:
         sync: false            # e.g. https://laundry-dash.onrender.com
       - key: EMAIL_PROVIDER
         value: none
-      - key: PHOTO_STORAGE
-        value: none
+      - key: PHOTO_STORAGE            # db = compressed photos stored in Neon (free); s3 = Cloudflare R2 later
+        value: db
       - key: PAYMENT_PROVIDER
         value: none
       - key: PAYMENT_WEBHOOK_SECRET

@@ -113,8 +113,12 @@ components:
         color: { type: string }
         quantity: { type: integer }
         careNotes: { type: string }
+        colorHex: { type: [string, 'null'], description: 'Swatch, e.g. #1F5FA8' }
+        purchaseValue: { type: [integer, 'null'], description: Value of the item in RWF (optional, per piece) }
         hasPhoto: { type: boolean }
         photoUrl: { type: [string, 'null'], description: Authenticated URL; owner only }
+        timesCleaned: { type: integer, description: Delivered orders that included this item }
+        lastCleanedAt: { type: [string, 'null'], format: date-time }
     WardrobeInput:
       type: object
       required: [categoryId, name]
@@ -122,7 +126,9 @@ components:
         categoryId: { type: string, format: uuid }
         name: { type: string, maxLength: 80 }
         color: { type: string }
+        colorHex: { type: [string, 'null'], pattern: '^#[0-9a-fA-F]{6}$' }
         quantity: { type: integer, minimum: 1, maximum: 100 }
+        purchaseValue: { type: [integer, 'null'], minimum: 0 }
         careNotes: { type: string }
     Service:
       type: object
@@ -418,9 +424,15 @@ paths:
   /me/wardrobe:
     get:
       tags: [Me]
-      summary: List wardrobe items
-      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }, { name: kind, in: query, schema: { type: string, enum: [CLOTHES, SHOES] } }]
-      responses: { '200': { description: Paged WardrobeItem } }
+      summary: "List wardrobe items, with whole-wardrobe totals in `stats` (items, pieces, totalValue, clothes, shoes, withPhotos)"
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { name: kind, in: query, schema: { type: string, enum: [CLOTHES, SHOES] } }
+        - { name: categoryId, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, schema: { type: string }, description: Search name or colour }
+        - { name: sort, in: query, schema: { type: string, enum: [recent, name, value], default: recent } }
+      responses: { '200': { description: Paged WardrobeItem plus stats } }
     post:
       tags: [Me]
       summary: Create wardrobe item

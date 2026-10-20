@@ -141,6 +141,8 @@ still works with the newer schema.
 
 ### Optional integrations (each is independent; leave off until credentials and testing exist)
 
+**Photos — default `PHOTO_STORAGE=db`:** photos are shrunk on the phone (≈800 px JPEG, ~60–120 KB, EXIF/GPS removed) and stored privately in PostgreSQL, so they work on the free tier with no extra account. Limit: 300 photos per customer. Roughly 1,000 photos ≈ 100 MB of Neon's 1 GB. When photo volume grows, switch to R2:
+
 **Photos (Cloudflare R2):** create a bucket, keep public access **disabled**, create an API token with
 object read/write on that bucket only. Set `PHOTO_STORAGE=s3`, `S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com`,
 `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Photos are served via 5-minute signed URLs after an

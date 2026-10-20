@@ -63,6 +63,7 @@ export async function orderDetail(db: Db, orderId: string, audience: 'customer' 
       categoryCode: i.category_code,
       categoryName: i.category_name,
       color: i.color,
+      colorHex: i.color_hex,
       careNotes: i.care_notes,
       hasPhoto: !!i.photo_key,
       serviceId: i.service_id,

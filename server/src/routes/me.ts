@@ -163,13 +163,19 @@ meRouter.delete('/addresses/:id', async (req, res) => {
 });
 
 // ---------- Wardrobe ----------
-const wardrobeSchema = z.object({
+const hex = z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Colour must look like #1F5FA8.');
+// Note: no .default() here so that .partial() on PATCH leaves unspecified fields untouched.
+const wardrobeFields = {
   categoryId: z.uuid(),
   name: z.string().trim().min(1, 'Please describe the item.').max(80),
-  color: z.string().trim().max(40).default(''),
-  quantity: z.coerce.number().int().min(1).max(100).default(1),
-  careNotes: z.string().trim().max(300).default(''),
-});
+  color: z.string().trim().max(40),
+  colorHex: hex.nullable(),
+  quantity: z.coerce.number().int().min(1).max(100),
+  purchaseValue: z.coerce.number().int('Enter a whole number of RWF.').min(0).max(100_000_000).nullable(),
+  careNotes: z.string().trim().max(300),
+};
+const wardrobeCreateSchema = z.object(wardrobeFields).partial().required({ categoryId: true, name: true });
+const wardrobePatchSchema = z.object(wardrobeFields).partial();
 
 export const wardrobeDto = (w: any) => ({
   id: w.id,
@@ -178,10 +184,15 @@ export const wardrobeDto = (w: any) => ({
   categoryCode: w.category_code,
   name: w.name,
   color: w.color,
+  colorHex: w.color_hex ?? null,
   quantity: w.quantity,
+  purchaseValue: w.purchase_value ?? null,
   careNotes: w.care_notes,
   hasPhoto: !!w.photo_key,
   photoUrl: w.photo_key ? `/api/v1/me/wardrobe/${w.id}/photo?v=${encodeURIComponent(w.photo_key.slice(-8))}` : null,
+  timesCleaned: w.times_cleaned ?? 0,
+  lastCleanedAt: w.last_cleaned_at ?? null,
+  createdAt: w.created_at,
   updatedAt: w.updated_at,
 });
 
@@ -191,31 +202,64 @@ async function category(id: string) {
   return c;
 }
 
+/** Cleaning history comes from delivered orders that used this wardrobe item. */
+const CLEAN_STATS = `
+  LEFT JOIN LATERAL (
+    SELECT count(DISTINCT oi.order_id)::int AS times_cleaned, max(o.updated_at) AS last_cleaned_at
+      FROM order_items oi JOIN orders o ON o.id = oi.order_id
+     WHERE oi.wardrobe_item_id = w.id AND o.status = 'DELIVERED'
+  ) cs ON true`;
+
+const listSchema = z.object({
+  kind: z.enum(['CLOTHES', 'SHOES']).optional(),
+  categoryId: z.uuid().optional(),
+  q: z.string().trim().max(60).optional(),
+  sort: z.enum(['recent', 'name', 'value']).default('recent'),
+});
+
 meRouter.get('/wardrobe', async (req, res) => {
   const { page, pageSize, limit, offset } = pagination(req);
-  const kind = z.enum(['CLOTHES', 'SHOES']).optional().parse(req.query.kind || undefined);
-  const params: unknown[] = [req.user!.id, limit, offset];
-  const kindSql = kind ? `AND w.kind = $4` : '';
-  if (kind) params.push(kind);
+  const f = listSchema.parse(Object.fromEntries(Object.entries(req.query).filter(([, v]) => v !== '')));
+  const params: unknown[] = [req.user!.id];
+  const where = ['w.user_id = $1', 'w.deleted_at IS NULL'];
+  if (f.kind) { params.push(f.kind); where.push(`w.kind = $${params.length}`); }
+  if (f.categoryId) { params.push(f.categoryId); where.push(`w.category_id = $${params.length}`); }
+  if (f.q) { params.push(`%${f.q.replace(/[%_\\]/g, (m) => '\\' + m)}%`); where.push(`(w.name ILIKE $${params.length} OR w.color ILIKE $${params.length})`); }
+  const order = f.sort === 'name' ? 'w.name ASC' : f.sort === 'value' ? 'w.purchase_value DESC NULLS LAST, w.name' : 'w.updated_at DESC';
+  params.push(limit, offset);
   const rows = await q(
     pool,
-    `SELECT w.*, c.code AS category_code, count(*) OVER()::int AS total FROM wardrobe_items w JOIN garment_categories c ON c.id = w.category_id
-      WHERE w.user_id = $1 AND w.deleted_at IS NULL ${kindSql} ORDER BY w.updated_at DESC LIMIT $2 OFFSET $3`,
+    `SELECT w.*, c.code AS category_code, cs.times_cleaned, cs.last_cleaned_at, count(*) OVER()::int AS total
+       FROM wardrobe_items w JOIN garment_categories c ON c.id = w.category_id ${CLEAN_STATS}
+      WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );
-  res.json(paged(rows.map(wardrobeDto), rows[0]?.total ?? 0, page, pageSize));
+  // Whole-wardrobe totals (independent of filters) for the summary header.
+  const stats = await one(
+    pool,
+    `SELECT count(*)::int AS items, COALESCE(sum(quantity),0)::int AS pieces,
+            COALESCE(sum(purchase_value::bigint * quantity),0)::bigint AS total_value,
+            count(*) FILTER (WHERE kind = 'CLOTHES')::int AS clothes, count(*) FILTER (WHERE kind = 'SHOES')::int AS shoes,
+            count(*) FILTER (WHERE photo_key IS NOT NULL)::int AS with_photos
+       FROM wardrobe_items WHERE user_id = $1 AND deleted_at IS NULL`,
+    [req.user!.id],
+  );
+  res.json({
+    ...paged(rows.map(wardrobeDto), rows[0]?.total ?? 0, page, pageSize),
+    stats: { items: stats.items, pieces: stats.pieces, totalValue: Number(stats.total_value), clothes: stats.clothes, shoes: stats.shoes, withPhotos: stats.with_photos },
+  });
 });
 
 meRouter.post('/wardrobe', async (req, res) => {
-  const b = wardrobeSchema.parse(req.body);
+  const b = wardrobeCreateSchema.parse(req.body);
   const c = await category(b.categoryId);
   const count = await one(pool, 'SELECT count(*)::int AS n FROM wardrobe_items WHERE user_id = $1 AND deleted_at IS NULL', [req.user!.id]);
   if (count.n >= 500) throw conflict('LIMIT_REACHED', 'Your wardrobe is full (500 items).');
   const w = await one(
     pool,
-    `INSERT INTO wardrobe_items (user_id, kind, category_id, name, color, quantity, care_notes) VALUES ($1,$2,$3,$4,$5,$6,$7)
-     RETURNING *, $8::text AS category_code`,
-    [req.user!.id, c.kind, c.id, b.name, b.color, b.quantity, b.careNotes, c.code],
+    `INSERT INTO wardrobe_items (user_id, kind, category_id, name, color, color_hex, quantity, purchase_value, care_notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *, $10::text AS category_code`,
+    [req.user!.id, c.kind, c.id, b.name, b.color ?? '', b.colorHex ?? null, b.quantity ?? 1, b.purchaseValue ?? null, b.careNotes ?? '', c.code],
   );
   res.status(201).json({ item: wardrobeDto(w) });
 });
@@ -223,7 +267,8 @@ meRouter.post('/wardrobe', async (req, res) => {
 async function ownWardrobe(req: express.Request) {
   const w = await one(
     pool,
-    `SELECT w.*, c.code AS category_code FROM wardrobe_items w JOIN garment_categories c ON c.id = w.category_id
+    `SELECT w.*, c.code AS category_code, cs.times_cleaned, cs.last_cleaned_at
+       FROM wardrobe_items w JOIN garment_categories c ON c.id = w.category_id ${CLEAN_STATS}
       WHERE w.id = $1 AND w.user_id = $2 AND w.deleted_at IS NULL`,
     [idParam(req), req.user!.id],
   );
@@ -237,16 +282,18 @@ meRouter.get('/wardrobe/:id', async (req, res) => {
 
 meRouter.patch('/wardrobe/:id', async (req, res) => {
   const cur = await ownWardrobe(req);
-  const b = wardrobeSchema.partial().parse(req.body);
+  const b = wardrobePatchSchema.parse(req.body);
   const c = b.categoryId ? await category(b.categoryId) : null;
+  const pick = <T,>(v: T | undefined, old: T) => (v === undefined ? old : v);
   // Editing never touches order_items: orders hold their own snapshot.
   const w = await one(
     pool,
-    `UPDATE wardrobe_items SET kind=$2, category_id=$3, name=$4, color=$5, quantity=$6, care_notes=$7, updated_at=now()
-      WHERE id = $1 RETURNING *, $8::text AS category_code`,
-    [cur.id, c?.kind ?? cur.kind, c?.id ?? cur.category_id, b.name ?? cur.name, b.color ?? cur.color, b.quantity ?? cur.quantity, b.careNotes ?? cur.care_notes, c?.code ?? cur.category_code],
+    `UPDATE wardrobe_items SET kind=$2, category_id=$3, name=$4, color=$5, color_hex=$6, quantity=$7, purchase_value=$8, care_notes=$9, updated_at=now()
+      WHERE id = $1 RETURNING *, $10::text AS category_code`,
+    [cur.id, c?.kind ?? cur.kind, c?.id ?? cur.category_id, pick(b.name, cur.name), pick(b.color, cur.color), pick(b.colorHex, cur.color_hex),
+     pick(b.quantity, cur.quantity), pick(b.purchaseValue, cur.purchase_value), pick(b.careNotes, cur.care_notes), c?.code ?? cur.category_code],
   );
-  res.json({ item: wardrobeDto(w) });
+  res.json({ item: wardrobeDto({ ...w, times_cleaned: cur.times_cleaned, last_cleaned_at: cur.last_cleaned_at }) });
 });
 
 meRouter.delete('/wardrobe/:id', async (req, res) => {
@@ -263,6 +310,7 @@ async function maybeDeletePhoto(key: string | null) {
   if (!used) await storage.delete(key).catch(() => {});
 }
 
+const PHOTO_QUOTA = 300;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 3 * 1024 * 1024, files: 1 } });
 
 meRouter.put('/wardrobe/:id/photo', (req, res, next) => {
@@ -273,8 +321,12 @@ meRouter.put('/wardrobe/:id/photo', (req, res, next) => {
   if (!req.file) throw badRequest('Choose a photo to upload.');
   const type = sniffImage(req.file.buffer);
   if (!type) throw badRequest('Photo must be a JPEG, PNG or WebP image.');
+  if (!cur.photo_key) {
+    const n = await one(pool, 'SELECT count(*)::int AS n FROM wardrobe_items WHERE user_id = $1 AND deleted_at IS NULL AND photo_key IS NOT NULL', [req.user!.id]);
+    if (n.n >= PHOTO_QUOTA) throw conflict('PHOTO_LIMIT', `You can keep up to ${PHOTO_QUOTA} photos. Remove one to add another.`);
+  }
   const key = `wardrobe/${req.user!.id}/${cur.id}-${crypto.randomBytes(6).toString('hex')}`;
-  await storage.put(key, req.file.buffer, type);
+  await storage.put(key, req.file.buffer, type, req.user!.id);
   await pool.query('UPDATE wardrobe_items SET photo_key = $2, updated_at = now() WHERE id = $1', [cur.id, key]);
   await maybeDeletePhoto(cur.photo_key);
   res.json({ item: wardrobeDto({ ...cur, photo_key: key }) });
@@ -296,7 +348,7 @@ meRouter.get('/wardrobe/:id/photo', async (req, res) => {
 export async function sendPhoto(res: express.Response, key: string) {
   const obj = await storage.get(key);
   if (!obj) throw notFound('Photo unavailable.');
-  res.set('Cache-Control', 'private, max-age=300');
+  res.set('Cache-Control', 'private, max-age=86400');
   if ('url' in obj) return res.redirect(302, obj.url);
   res.type(obj.contentType).send(obj.body);
 }

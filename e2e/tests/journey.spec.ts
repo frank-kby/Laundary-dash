@@ -56,7 +56,7 @@ test('customer books a pickup and follows it through to delivery and payment', a
   await expect(page.locator('.price tfoot')).toContainText('3,600 RWF');
   const confirm = page.getByRole('button', { name: /Confirm booking/ });
   await confirm.dblclick(); // a double tap must not create two bookings
-  await expect(page.getByRole('heading', { name: 'Booking received' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'You’re all set!' })).toBeVisible();
   const ref = (await page.getByText(/Reference LD-/).textContent())!.match(/LD-\d{6}-\w{5}/)![0];
   await page.getByRole('link', { name: 'View order' }).click();
   await expect(page.locator('.line-status')).toHaveText('Waiting for confirmation');

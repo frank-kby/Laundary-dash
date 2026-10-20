@@ -59,7 +59,7 @@ test('offline is shown honestly and nothing is reported as sent', async ({ page,
   await expect(page.getByText(/Offline\. You can look around/)).toBeVisible();
   await page.getByRole('button', { name: 'Add item' }).click();
   await page.getByLabel('Description').fill('Offline jacket');
-  await page.getByLabel('Type').selectOption({ label: 'Jackets & suits' });
+  await page.getByLabel('Type', { exact: true }).selectOption({ label: 'Jackets & suits' });
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText(/You seem to be offline\. Nothing was sent/)).toBeVisible();
   await context.setOffline(false);

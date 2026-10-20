@@ -7,8 +7,8 @@ test-mode stand-in only · **Not configured** = code exists, needs credentials, 
 ## Test evidence (actually run)
 | Suite | Result | Output |
 |---|---|---|
-| Server unit + integration (real PostgreSQL 16) | **78 / 78 passed** | `docs/test-results/server-tests.txt` |
-| End-to-end, Playwright, Pixel 7 + 360 px viewport (Chromium 153) | **10 / 10 passed** | `docs/test-results/e2e-tests.txt` |
+| Server unit + integration (real PostgreSQL 16) | **85 / 85 passed** | `docs/test-results/server-tests.txt` |
+| End-to-end, Playwright, Pixel 7 + 360 px viewport (Chromium 153) | **11 / 11 passed** | `docs/test-results/e2e-tests.txt` |
 | TypeScript typecheck (server + web) | clean | — |
 | Production-mode boot of compiled build | HTTPS redirect, HSTS, `__Host-` Secure cookie, origin rejection, insecure-config refusal all confirmed | — |
 | Backup → restore round trip | passed; restore refuses non-empty target | — |
@@ -40,8 +40,8 @@ staff/rider code is split out. A throttled "agreed test connection" (e.g. Fast 3
 | Duplicate-submission and slot-overbooking prevention (incl. concurrent requests) | **Tested** |
 | Cancel / reschedule before pickup | **Tested** |
 | Price-increase approval / rejection by customer | **Tested** (API + E2E) |
-| Wardrobe CRUD; edits never rewrite orders | **Tested** |
-| Optional private photos | **Tested** with local storage · R2 **Not configured** |
+| Virtual wardrobe: photo grid, colour swatches, value per item, totals, search/filter/sort, cleaning history, book-from-item; edits never rewrite orders | **Tested** (API + E2E) |
+| Optional private photos | **Tested** (stored in PostgreSQL, `PHOTO_STORAGE=db`, shrunk on device) · R2 **Not configured** |
 | Language switch EN/RW; dictionaries | **Tested** (E2E) |
 | Offline banner; offline submissions fail visibly, never shown as confirmed | **Tested** (E2E) |
 | Mobile layout: no horizontal scroll, ≥44 px targets at 360 px | **Tested** (E2E) |

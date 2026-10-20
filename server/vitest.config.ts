@@ -12,7 +12,7 @@ export default defineConfig({
       DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgres://postgres@localhost:5432/laundry_dash_test',
       APP_ORIGIN: 'http://localhost:5173',
       EMAIL_PROVIDER: 'console',
-      PHOTO_STORAGE: 'local',
+      PHOTO_STORAGE: 'db',
       LOCAL_UPLOAD_DIR: './data/test-uploads',
       PAYMENT_PROVIDER: 'simulator',
       PAYMENT_WEBHOOK_SECRET: 'test-webhook-secret-0123456789',

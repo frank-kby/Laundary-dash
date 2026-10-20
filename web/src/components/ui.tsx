@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { ApiError, get } from '../api';
 import { useI18n } from '../i18n';
 
@@ -66,12 +66,91 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
   return <div className={`notice notice-${tone}`}>{children}</div>;
 }
 
-export function Loading() {
+/** Shimmering placeholder while content loads (announced to screen readers as "Loading…"). */
+export function Loading({ rows = 3, block = false }: { rows?: number; block?: boolean }) {
   const { t } = useI18n();
   return (
-    <p className="loading" role="status" aria-live="polite">
-      {t('common.loading')}
-    </p>
+    <div className="loading" role="status" aria-live="polite">
+      <span className="sr-only">{t('common.loading')}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <span key={i} className={`skel${block ? ' skel-lg' : ''}`} style={{ width: block ? '100%' : `${92 - i * 14}%` }} />
+      ))}
+    </div>
+  );
+}
+
+// ---------- Toast ----------
+const ToastCtx = createContext<(msg: string) => void>(() => {});
+export const useToast = () => useContext(ToastCtx);
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [msg, setMsg] = useState<{ text: string; id: number } | null>(null);
+  const timer = useRef<number | null>(null);
+  const show = useCallback((text: string) => {
+    if (timer.current) window.clearTimeout(timer.current);
+    setMsg({ text, id: Date.now() });
+    timer.current = window.setTimeout(() => setMsg(null), 2600);
+  }, []);
+  return (
+    <ToastCtx.Provider value={show}>
+      {children}
+      <div className="toast-host" aria-live="polite" role="status">
+        {msg && (
+          <div className="toast" key={msg.id}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+            {msg.text}
+          </div>
+        )}
+      </div>
+    </ToastCtx.Provider>
+  );
+}
+
+// ---------- Colour + garment visuals ----------
+export function ColorDot({ hex, name, size = 14 }: { hex: string | null; name?: string; size?: number }) {
+  const multi = !hex && name && /multi|menshi/i.test(name);
+  return (
+    <span
+      className={`dot${!hex ? (multi ? ' dot-multi' : ' dot-none') : ''}`}
+      style={{ width: size, height: size, ...(hex ? { background: hex } : {}) }}
+      role="img"
+      aria-label={name || hex || 'no colour'}
+    />
+  );
+}
+
+/** Perceived lightness, used to keep white garments and checkmarks visible. */
+export function isLight(hex: string | null) {
+  if (!hex) return true;
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return 0.299 * r + 0.587 * g + 0.114 * b > 186;
+}
+
+const SILHOUETTES: Record<string, string> = {
+  shirt: 'M30 14 L42 9 Q50 17 58 9 L70 14 L88 30 L78 42 L72 36 L72 90 L28 90 L28 36 L22 42 L12 30 Z',
+  trousers: 'M30 8 L70 8 L74 92 L56 92 L50 40 L44 92 L26 92 Z',
+  dress: 'M38 8 L44 8 Q50 16 56 8 L62 8 L64 30 L84 92 L16 92 L36 30 Z',
+  jacket: 'M32 12 L43 8 L50 34 L57 8 L68 12 L86 28 L90 84 L78 86 L74 44 L74 92 L26 92 L26 44 L22 86 L10 84 L14 28 Z',
+  shoe: 'M8 52 Q10 40 22 42 L32 50 Q52 54 72 58 Q92 62 92 76 L92 82 L8 82 Z',
+  boot: 'M24 10 L52 10 L54 54 Q84 58 90 72 L90 84 L20 84 Z',
+  sandal: 'M10 70 Q12 58 30 60 L84 62 Q94 64 92 76 L10 78 Z M34 60 L46 42 L58 60',
+};
+export function silhouetteFor(code: string, kind: string) {
+  if (kind === 'SHOES') return code === 'BOOTS' ? 'boot' : code === 'SANDALS' ? 'sandal' : 'shoe';
+  if (code === 'TROUSERS') return 'trousers';
+  if (code === 'DRESS') return 'dress';
+  if (code === 'JACKET') return 'jacket';
+  return 'shirt';
+}
+export function Silhouette({ shape, hex }: { shape: string; hex: string | null }) {
+  const fill = hex ?? '#9ccbf3';
+  const stroke = isLight(hex) ? '#9aa8bd' : 'rgba(19,32,59,.35)';
+  return (
+    <svg className="silhouette" viewBox="0 0 100 100" aria-hidden="true">
+      <path d={SILHOUETTES[shape] ?? SILHOUETTES.shirt} fill={fill} stroke={stroke} strokeWidth="2.5" strokeLinejoin="round" />
+      {shape === 'jacket' && <path d="M43 8 L38 30 L50 56 L62 30 L57 8 M50 56 L50 92" fill="none" stroke={stroke} strokeWidth="2.5" strokeLinejoin="round" />}
+      {shape === 'shirt' && <path d="M42 9 Q50 17 58 9" fill="none" stroke={stroke} strokeWidth="2.5" />}
+    </svg>
   );
 }
 
@@ -133,7 +212,7 @@ export function Checkbox({ label, hint, checked, onChange, name }: { label: stri
   );
 }
 
-export function Button({ busy, children, variant = 'primary', className = '', ...rest }: { busy?: boolean; variant?: 'primary' | 'secondary' | 'quiet' | 'danger' } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+export function Button({ busy, children, variant = 'primary', className = '', ...rest }: { busy?: boolean; variant?: 'primary' | 'secondary' | 'quiet' | 'danger' | 'sun' } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button className={`btn btn-${variant} ${className}`} disabled={busy || rest.disabled} aria-busy={busy || undefined} {...rest}>
       {children}

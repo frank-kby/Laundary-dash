@@ -112,11 +112,11 @@ async function buildDraft(db: Db, userId: string, b: Omit<BookingInput, 'pickupS
     if (it.wardrobeItemId) {
       const w = wardrobe.get(it.wardrobeItemId);
       if (!w) throw badRequest(`Item ${idx + 1}: wardrobe item not found.`);
-      snap = { wardrobeItemId: w.id, name: w.name, kind: w.kind, categoryId: w.category_id, categoryCode: w.category_code, categoryName: w.category_name, color: w.color, careNotes: it.careNotes ?? w.care_notes, photoKey: w.photo_key };
+      snap = { wardrobeItemId: w.id, name: w.name, kind: w.kind, categoryId: w.category_id, categoryCode: w.category_code, categoryName: w.category_name, color: w.color, colorHex: w.color_hex ?? null, careNotes: it.careNotes ?? w.care_notes, photoKey: w.photo_key };
     } else {
       const c = cats.get(it.categoryId!);
       if (!c) throw badRequest(`Item ${idx + 1}: choose a category.`);
-      snap = { wardrobeItemId: null, name: it.name!, kind: c.kind, categoryId: c.id, categoryCode: c.code, categoryName: c.name_en, color: it.color ?? '', careNotes: it.careNotes ?? '', photoKey: null };
+      snap = { wardrobeItemId: null, name: it.name!, kind: c.kind, categoryId: c.id, categoryCode: c.code, categoryName: c.name_en, color: it.color ?? '', colorHex: null, careNotes: it.careNotes ?? '', photoKey: null };
     }
     if (snap.kind !== svc.kind) throw badRequest(`Item ${idx + 1}: "${svc.name_en}" is not available for ${snap.kind.toLowerCase()}.`);
     const qty = it.quantity;
@@ -205,10 +205,10 @@ bookingsRouter.post('/', async (req, res) => {
             }
             await c.query(
               `INSERT INTO order_items (id, order_id, wardrobe_item_id, name, kind, category_code, category_name, color, care_notes, photo_key,
-                                        service_id, service_code, service_name, pricing_unit, unit_price, min_charge, declared_quantity)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+                                        service_id, service_code, service_name, pricing_unit, unit_price, min_charge, declared_quantity, color_hex)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
               [s.ref, order.id, wardrobeId, s.name, s.kind, s.categoryCode, s.categoryName, s.color, s.careNotes, s.photoKey,
-               s.service.id, s.service.code, s.service.name_en, s.service.pricing_unit, s.unitPrice, s.service.min_charge, s.quantity],
+               s.service.id, s.service.code, s.service.name_en, s.service.pricing_unit, s.unitPrice, s.service.min_charge, s.quantity, s.colorHex],
             );
           }
           // Item refs in the stored pricing snapshot now point at real order_item ids.

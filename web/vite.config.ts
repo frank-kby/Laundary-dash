@@ -28,7 +28,8 @@ export default defineConfig({
       workbox: {
         // Only the app shell is cached. API responses are never cached by the service worker
         // (they are private and change constantly); offline API calls fail visibly instead.
-        globPatterns: ['**/*.{js,css,html,png,svg}'],
+        globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
+        globIgnores: ['**/*vietnamese*', '**/*latin-ext*'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/healthz/],
         runtimeCaching: [],

@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './auth';
 import { I18nProvider } from './i18n';
 import type { Role } from './types';
 import { CustomerLayout } from './components/Layout';
-import { Loading } from './components/ui';
+import { Loading, ToastProvider } from './components/ui';
 import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage } from './pages/customer/Auth';
 import { HomePage } from './pages/customer/Home';
 import { BookPage } from './pages/customer/Book';
@@ -44,6 +44,7 @@ export function App() {
   return (
     <I18nProvider>
       <AuthProvider>
+        <ToastProvider>
         <BrowserRouter>
           <Suspense fallback={<Loading />}>
             <Routes>
@@ -75,6 +76,7 @@ export function App() {
             </Routes>
           </Suspense>
         </BrowserRouter>
+        </ToastProvider>
       </AuthProvider>
     </I18nProvider>
   );

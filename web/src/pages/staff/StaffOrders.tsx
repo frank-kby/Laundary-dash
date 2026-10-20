@@ -5,7 +5,7 @@ import { useAuth } from '../../auth';
 import { useCatalog } from '../../catalog';
 import { useI18n } from '../../i18n';
 import type { OrderDetail, OrderSummary, Paged } from '../../types';
-import { Badge, Button, Checkbox, ErrorBox, Loading, Notice, payTone, SelectField, statusTone, TextArea, TextField, useLoad } from '../../components/ui';
+import { Badge, Button, Checkbox, ColorDot, ErrorBox, Loading, Notice, payTone, SelectField, statusTone, TextArea, TextField, useLoad } from '../../components/ui';
 import { PriceBreakdown } from '../customer/Book';
 
 const STATUSES = ['PENDING_CONFIRMATION', 'CONFIRMED', 'PICKUP_SCHEDULED', 'PICKED_UP', 'RECEIVED', 'INSPECTION_REQUIRED', 'AWAITING_APPROVAL', 'PROCESSING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'ON_HOLD'];
@@ -135,7 +135,7 @@ function InspectionPanel({ o, set }: { o: OrderDetail; set: (o: OrderDetail) => 
           <tbody>
             {o.items.map((i) => (
               <tr key={i.id}>
-                <td>{i.name}<span className="block muted small">{i.serviceName}{i.careNotes && ` · ${i.careNotes}`}</span></td>
+                <td><span className="item-line">{(i.colorHex || i.color) && <ColorDot hex={i.colorHex} name={i.color} />}{i.name}</span><span className="block muted small">{i.color && `${i.color}, `}{i.serviceName}{i.careNotes && `: ${i.careNotes}`}</span></td>
                 <td>{i.declaredQuantity}{i.pricingUnit === 'KG' ? ' kg' : ''}</td>
                 <td>
                   {i.pricingUnit === 'ITEM'

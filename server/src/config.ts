@@ -22,8 +22,8 @@ const schema = z.object({
   EMAIL_FROM: z.string().default(''),
   RESEND_API_KEY: z.string().default(''),
 
-  // Photo storage. none | local (dev only, not persistent on free hosts) | s3 (Cloudflare R2 or any S3-compatible)
-  PHOTO_STORAGE: z.enum(['none', 'local', 's3']).default('none'),
+  // Photo storage. none | db (PostgreSQL, free-tier friendly) | local (dev only) | s3 (Cloudflare R2 / S3-compatible)
+  PHOTO_STORAGE: z.enum(['none', 'db', 'local', 's3']).default('none'),
   LOCAL_UPLOAD_DIR: z.string().default('./data/uploads'),
   S3_ENDPOINT: z.string().default(''),
   S3_BUCKET: z.string().default(''),

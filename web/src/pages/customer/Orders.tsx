@@ -5,7 +5,7 @@ import { useAuth } from '../../auth';
 import { useI18n } from '../../i18n';
 import type { OrderDetail, OrderSummary, Paged, Payment, Slot } from '../../types';
 import { PageTitle } from '../../components/Layout';
-import { Badge, Button, Clothesline, ErrorBox, Loading, Notice, payTone, Sheet, statusTone, TextField, useLoad } from '../../components/ui';
+import { Badge, Button, Clothesline, ColorDot, ErrorBox, Loading, Notice, payTone, Sheet, statusTone, TextField, useLoad } from '../../components/ui';
 import { PriceBreakdown, SlotPicker } from './Book';
 
 const CANCELLABLE = ['PENDING_CONFIRMATION', 'CONFIRMED', 'PICKUP_SCHEDULED'];
@@ -220,7 +220,7 @@ export function OrderPage() {
           {o.items.map((i) => (
             <li key={i.id} className="list-row static">
               <span>
-                <strong>{i.name}</strong> <span className="muted small">{i.serviceName}</span>
+                <span className="item-line">{(i.colorHex || i.color) && <ColorDot hex={i.colorHex} name={i.color} />}<strong>{i.name}</strong> <span className="muted small">{i.serviceName}</span></span>
                 <span className="small block">
                   {i.pricingUnit === 'KG'
                     ? i.measuredWeightKg != null ? t('order.weighed', { kg: i.measuredWeightKg }) : `${t('order.declared', { n: i.declaredQuantity })} kg`

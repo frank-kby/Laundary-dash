@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { useI18n, type Lang } from '../i18n';
 
@@ -71,6 +71,7 @@ const ICONS = {
 export function CustomerLayout() {
   const { t } = useI18n();
   const { user } = useAuth();
+  const { pathname } = useLocation();
   const tabs = [
     { to: '/', label: t('nav.home'), icon: ICONS.home, end: true },
     { to: '/wardrobe', label: t('nav.wardrobe'), icon: ICONS.wardrobe },
@@ -89,7 +90,7 @@ export function CustomerLayout() {
       </header>
       <OfflineBanner />
       {user?.isDemo && <div className="demo-strip">{t('common.demo')}</div>}
-      <main className="page" id="main">
+      <main className="page screen-in" id="main" key={pathname}>
         <Outlet />
       </main>
       <nav className="tabbar" aria-label="Main">
