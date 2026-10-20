@@ -5,7 +5,7 @@
   "description": "Laundry Dash — laundry pickup & delivery PWA for Kigali",
   "engines": { "node": ">=20" },
   "scripts": {
-    "install:all": "npm ci --prefix server && npm ci --prefix web",
+      "install:all": "npm ci --include=dev --prefix server && npm ci --include=dev --prefix web",
     "build": "npm run build --prefix web && npm run build --prefix server",
     "start": "npm start --prefix server",
     "dev:server": "npm run dev --prefix server",
