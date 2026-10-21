@@ -622,3 +622,51 @@ details summary { cursor: pointer; font-weight: 700; color: var(--rinse); min-he
 .install-hint .btn-quiet { color: rgba(255,255,255,.8); }
 
 .sheet { text-align: left; }
+
+/* ---------- Staff portal on phones ---------- */
+.seg-scroll { scrollbar-width: none; }
+.seg-scroll::-webkit-scrollbar, .staff-nav::-webkit-scrollbar, .day-chips::-webkit-scrollbar { display: none; }
+.day-chips { display: flex; gap: .5rem; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: 0 -2px; -webkit-overflow-scrolling: touch; }
+.day-chips .chip { flex: none; }
+.chip-count { display: inline-grid; place-items: center; min-width: 1.4em; height: 1.4em; margin-left: .3rem; padding: 0 .3em; border-radius: 99px; background: rgba(19,32,59,.08); font-size: .78em; }
+.chip[aria-pressed='true'] .chip-count { background: rgba(255,255,255,.2); }
+.staff-signout { display: inline-flex; align-items: center; gap: .4rem; }
+.staff-signout svg { display: none; }
+
+@media (max-width: 759px) {
+  .shell-staff .topbar { display: grid; grid-template-columns: 1fr auto; gap: .4rem .5rem; padding-bottom: 0; }
+  .shell-staff .topbar .brand { font-size: 1rem; }
+  .shell-staff .staff-nav { grid-column: 1 / -1; grid-row: 2; flex-wrap: nowrap; overflow-x: auto; margin: 0 -1rem; padding: .15rem 1rem .55rem; scroll-snap-type: x proximity; scrollbar-width: none; -webkit-overflow-scrolling: touch; mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 24px), transparent); }
+  .shell-staff .staff-nav a { flex: none; scroll-snap-align: center; min-height: 40px; display: inline-flex; align-items: center; }
+  .staff-who, .staff-signout-text { display: none; }
+  .staff-signout svg { display: block; }
+  .staff-signout { min-width: 44px; min-height: 44px; justify-content: center; padding: 0; }
+
+  .seg-scroll.segmented.wrap { flex-wrap: nowrap; overflow-x: auto; border-radius: var(--r-pill); width: 100%; }
+  .seg-scroll button { flex: none; }
+
+  /* Tables become cards: first cell is the title, the rest are "label: value" rows. */
+  .shell-staff .table-wrap { overflow: visible; background: none; border: 0; box-shadow: none; }
+  .shell-staff .data:not(.keep-table) thead { display: none; }
+  .shell-staff .data:not(.keep-table), .shell-staff .data:not(.keep-table) tbody { display: block; }
+  .shell-staff .data:not(.keep-table) tr { display: block; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-1); padding: .7rem .9rem; margin-bottom: .65rem; }
+  .shell-staff .data:not(.keep-table) tbody tr:hover { background: var(--card); }
+  .shell-staff .data:not(.keep-table) td { display: grid; grid-template-columns: minmax(84px, 36%) 1fr; gap: .6rem; align-items: center; padding: .35rem 0; border: 0; text-align: left; white-space: normal; }
+  .shell-staff .data:not(.keep-table) td > * { grid-column: 2; }
+  .shell-staff .data:not(.keep-table) td::before { content: attr(data-label); color: var(--ink-3, #5b6b82); font-size: .8rem; font-weight: 700; }
+  .shell-staff .data:not(.keep-table) td:first-child { display: block; font-weight: 800; font-size: 1rem; padding-bottom: .5rem; margin-bottom: .2rem; border-bottom: 1px solid var(--line); }
+  .shell-staff .data:not(.keep-table) td:first-child::before { display: none; }
+  .shell-staff .data:not(.keep-table) td[data-label=""] { display: block; }
+  .shell-staff .data:not(.keep-table) td[data-label=""]::before { display: none; }
+  .shell-staff .data:not(.keep-table) td:empty { display: none; }
+  .shell-staff .data:not(.keep-table) td.num { text-align: left; }
+  .shell-staff .data:not(.keep-table) td input, .shell-staff .data:not(.keep-table) td select { width: 100%; min-height: 44px; }
+  .shell-staff .data:not(.keep-table) td input[type="checkbox"] { width: 24px; min-height: 24px; justify-self: start; }
+  .shell-staff .data:not(.keep-table) td.inline-form { display: flex; }
+  .shell-staff .data.keep-table { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+  .shell-staff .data.keep-table td:first-child { white-space: nowrap; font-weight: 700; }
+  .shell-staff .data.keep-table input[type="number"] { width: 76px; min-height: 44px; }
+  .shell-staff .data.keep-table input[type="checkbox"] { width: 24px; height: 24px; }
+  .shell-staff .page-wide { padding-left: 1rem; padding-right: 1rem; }
+}
+.data.keep-table input[type="number"] { width: 90px; }

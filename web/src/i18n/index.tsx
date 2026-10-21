@@ -16,6 +16,8 @@ interface I18nValue {
   dateTime: (iso: string) => string;
   date: (iso: string) => string;
   slotLabel: (start: string, end: string) => string;
+  dayLabel: (iso: string) => string;
+  timeRange: (start: string, end: string) => string;
 }
 
 const Ctx = createContext<I18nValue | null>(null);
@@ -71,6 +73,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       dateTime: (iso) => dt.format(new Date(iso)),
       date: (iso) => d.format(new Date(iso)),
       slotLabel: (s, e) => `${day.format(new Date(s))}, ${hm.format(new Date(s))}–${hm.format(new Date(e))}`,
+      dayLabel: (iso) => day.format(new Date(iso)),
+      timeRange: (s, e) => `${hm.format(new Date(s))}–${hm.format(new Date(e))}`,
     };
   }, [lang, setLang]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

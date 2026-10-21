@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { patch, post, put } from '../../api';
 import { useAuth } from '../../auth';
 import { loadCatalog } from '../../catalog';
@@ -8,10 +8,46 @@ import type { Area, Category, Paged, Payment, Plan, Service, User } from '../../
 import { Brand, LangSwitch, OfflineBanner } from '../../components/Layout';
 import { Badge, Button, Checkbox, ErrorBox, Loading, Notice, payTone, SelectField, Sheet, TextArea, TextField, useLoad, useToast } from '../../components/ui';
 
+/**
+ * On phones, data tables become stacked cards. Each cell needs its column name as a label; rather than hand-writing
+ * data-label on every <td>, copy it from the table's own header row whenever the content changes.
+ */
+function useCardLabels(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    const label = () => {
+      root.querySelectorAll<HTMLTableElement>('table.data').forEach((table) => {
+        const heads = Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent?.trim() ?? '');
+        table.querySelectorAll('tbody tr').forEach((tr) => {
+          Array.from(tr.children).forEach((td, i) => {
+            const want = heads[i] ?? '';
+            if (td.getAttribute('data-label') !== want) td.setAttribute('data-label', want);
+          });
+        });
+      });
+    };
+    label();
+    const mo = new MutationObserver(label);
+    mo.observe(root, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, [ref]);
+}
+
 export function StaffLayout() {
   const { t } = useI18n();
   const { user, logout } = useAuth();
   const nav = useNavigate();
+  const { pathname } = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  useCardLabels(mainRef);
+  // Keep the current section visible in the swipeable phone menu.
+  useEffect(() => {
+    const a = navRef.current?.querySelector<HTMLElement>('a.active');
+    const bar = navRef.current;
+    if (a && bar && bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: a.offsetLeft - bar.clientWidth / 2 + a.clientWidth / 2, behavior: 'smooth' });
+  }, [pathname]);
   const links: [string, string, boolean?][] = [
     ['/staff', t('staff.orders'), true],
     ['/staff/payments', t('staff.payments')],
@@ -25,18 +61,21 @@ export function StaffLayout() {
     <div className="shell shell-staff">
       <header className="topbar">
         <Brand />
-        <nav className="staff-nav" aria-label="Staff">
+        <nav ref={navRef} className="staff-nav" aria-label="Staff">
           {links.map(([to, label, end]) => <NavLink key={to} to={to} end={end}>{label}</NavLink>)}
         </nav>
         <div className="topbar-right">
-          <span className="small">{user?.fullName} ({user?.role})</span>
+          <span className="small staff-who">{user?.fullName} ({user?.role})</span>
           <LangSwitch />
-          <button className="btn btn-quiet" onClick={async () => { await logout(); nav('/login'); }}>{t('auth.signOut')}</button>
+          <button className="btn btn-quiet staff-signout" onClick={async () => { await logout(); nav('/login'); }} aria-label={t('auth.signOut')} title={t('auth.signOut')}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3" /></svg>
+            <span className="staff-signout-text">{t('auth.signOut')}</span>
+          </button>
         </div>
       </header>
       <OfflineBanner />
       {user?.isDemo && <div className="demo-strip">{t('common.demo')}</div>}
-      <main className="page page-wide"><Outlet /></main>
+      <main ref={mainRef} className="page page-wide"><Outlet /></main>
     </div>
   );
 }
@@ -69,7 +108,7 @@ export function SettingsPage() {
   return (
     <div className="stack">
       <h1>{t('staff.settings')}</h1>
-      <div className="segmented wrap">
+      <div className="segmented wrap seg-scroll" role="group" aria-label={t('staff.settings')}>
         {(['contact', 'services', 'areas', 'categories', 'plans', 'slots'] as const).map((k) => (
           <button key={k} className={tab === k ? 'on' : ''} aria-pressed={tab === k} onClick={() => setTab(k)}>{t(`staff.${k}` as any)}</button>
         ))}
@@ -306,9 +345,24 @@ function PlansEditor({ admin }: { admin: boolean }) {
   );
 }
 
+const kigaliDay = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Africa/Kigali' });
+
 function SlotsEditor() {
-  const { t, slotLabel } = useI18n();
+  const { t, dayLabel, timeRange } = useI18n();
   const list = useLoad<{ items: { id: string; startsAt: string; endsAt: string; capacity: number; booked: number; active: boolean }[] }>('/admin/pickup-slots?days=14');
+  // One day at a time keeps the list short on a phone (14 days × 5 slots would otherwise be ~70 rows).
+  const days = useMemo(() => {
+    const m = new Map<string, [string, string, number]>();
+    for (const x of list.data?.items ?? []) {
+      const k = kigaliDay(x.startsAt);
+      const cur = m.get(k);
+      m.set(k, cur ? [k, cur[1], cur[2] + 1] : [k, x.startsAt, 1]);
+    }
+    return [...m.values()];
+  }, [list.data]);
+  const [picked, setDay] = useState<string | null>(null);
+  const day = picked && days.some((d) => d[0] === picked) ? picked : days[0]?.[0] ?? null;
+  const slotsOfDay = (list.data?.items ?? []).filter((x) => kigaliDay(x.startsAt) === day);
   const [g, setG] = useState({ days: 7, startHour: 8, endHour: 18, slotMinutes: 120, capacity: 4 });
   const s = useSave();
   const [msg, setMsg] = useState('');
@@ -328,13 +382,22 @@ function SlotsEditor() {
         {msg && <Notice tone="ok">{msg}</Notice>}
         <Button type="submit" busy={s.busy}>{t('staff.generateSlots')}</Button>
       </form>
+      {days.length > 0 && (
+        <div className="day-chips" role="group" aria-label="Day">
+          {days.map(([key, iso, n]) => (
+            <button key={key} type="button" className={`chip${day === key ? ' on' : ''}`} aria-pressed={day === key} onClick={() => setDay(key)}>
+              {dayLabel(iso)} <span className="chip-count">{n}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="table-wrap">
-        <table className="data">
-          <thead><tr><th>Slot</th><th className="num">Booked</th><th>Capacity</th><th>Open</th></tr></thead>
-          <tbody>{list.data?.items.map((x) => (
+        <table className="data keep-table">
+          <thead><tr><th>Time</th><th className="num">Booked</th><th>Capacity</th><th>Open</th></tr></thead>
+          <tbody>{slotsOfDay.map((x) => (
             <tr key={x.id}>
-              <td>{slotLabel(x.startsAt, x.endsAt)}</td><td className="num">{x.booked}</td>
-              <td><input aria-label="Capacity" type="number" min={x.booked} defaultValue={x.capacity} onBlur={(e) => Number(e.target.value) !== x.capacity && s.run(() => patch(`/admin/pickup-slots/${x.id}`, { capacity: Number(e.target.value) })).then(list.reload)} /></td>
+              <td>{timeRange(x.startsAt, x.endsAt)}</td><td className="num">{x.booked}</td>
+              <td><input aria-label="Capacity" type="number" inputMode="numeric" min={x.booked} defaultValue={x.capacity} onBlur={(e) => Number(e.target.value) !== x.capacity && s.run(() => patch(`/admin/pickup-slots/${x.id}`, { capacity: Number(e.target.value) })).then(list.reload)} /></td>
               <td><input aria-label="Open for booking" type="checkbox" checked={x.active} onChange={(e) => s.run(() => patch(`/admin/pickup-slots/${x.id}`, { active: e.target.checked })).then(list.reload)} /></td>
             </tr>
           ))}</tbody>
