@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { InstallHint } from './InstallHint';
 import { useI18n, type Lang } from '../i18n';
 
 export function useOnline() {
@@ -85,6 +86,7 @@ export function CustomerLayout() {
         <div className="topbar-right">
           {user && (user.role === 'STAFF' || user.role === 'ADMIN') && <NavLink to="/staff" className="toplink">{t('nav.staff')}</NavLink>}
           {user?.role === 'RIDER' && <NavLink to="/rider" className="toplink">{t('nav.rider')}</NavLink>}
+          {!user && <NavLink to="/login" className="toplink toplink-pill">{t('nav.signIn')}</NavLink>}
           <LangSwitch />
         </div>
       </header>
@@ -93,6 +95,7 @@ export function CustomerLayout() {
       <main className="page screen-in" id="main" key={pathname}>
         <Outlet />
       </main>
+      {pathname === '/' && <InstallHint />}
       <nav className="tabbar" aria-label="Main">
         {tabs.map((tab) => (
           <NavLink key={tab.to} to={tab.to} end={tab.end} className={({ isActive }) => `tab${isActive ? ' tab-on' : ''}`}>

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, del, patch, post } from '../../api';
 import { useAuth } from '../../auth';
-import { useCatalog, useLocalName } from '../../catalog';
+import { useCatalog, useLocalName, useVisibleCategories } from '../../catalog';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/en';
-import type { Paged, WardrobeItem, WardrobeStats } from '../../types';
+import type { Depreciation, Paged, WardrobeItem, WardrobeStats } from '../../types';
 import { PageTitle } from '../../components/Layout';
 import { Button, ColorDot, ErrorBox, isLight, Loading, SelectField, Sheet, Silhouette, silhouetteFor, TextArea, TextField, useLoad, useToast } from '../../components/ui';
 
@@ -103,11 +103,13 @@ function QtyStepper({ value, onChange }: { value: number; onChange: (n: number) 
   );
 }
 
-export function WardrobeForm({ item, onDone, onCancel }: { item?: WardrobeItem; onDone: (w: WardrobeItem) => void; onCancel: () => void }) {
+export function WardrobeForm({ item, onDone, onCancel, locations = [] }: { item?: WardrobeItem; onDone: (w: WardrobeItem) => void; onCancel: () => void; locations?: string[] }) {
   const { t } = useI18n();
-  const { config } = useAuth();
-  const { catalog } = useCatalog();
+  const { config, user } = useAuth();
+  const visibleCats = useVisibleCategories();
   const localName = useLocalName();
+  const isBusiness = user?.accountType === 'BUSINESS';
+  const today = new Date().toISOString().slice(0, 10);
   const [f, setF] = useState({
     name: item?.name ?? '',
     categoryId: item?.categoryId ?? '',
@@ -116,6 +118,8 @@ export function WardrobeForm({ item, onDone, onCancel }: { item?: WardrobeItem; 
     quantity: item?.quantity ?? 1,
     value: item?.purchaseValue != null ? String(item.purchaseValue) : '',
     careNotes: item?.careNotes ?? '',
+    acquiredOn: item?.acquiredOn ?? '',
+    location: item?.location ?? '',
   });
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [preview, setPreview] = useState<string | null>(item?.photoUrl ?? null);
@@ -154,6 +158,8 @@ export function WardrobeForm({ item, onDone, onCancel }: { item?: WardrobeItem; 
         quantity: f.quantity,
         purchaseValue: f.value.trim() === '' ? null : Number(f.value.replace(/[\s,]/g, '')),
         careNotes: f.careNotes,
+        acquiredOn: f.acquiredOn || null,
+        location: f.location,
       };
       let w: WardrobeItem = item
         ? (await patch<{ item: WardrobeItem }>(`/me/wardrobe/${item.id}`, body)).item
@@ -205,10 +211,17 @@ export function WardrobeForm({ item, onDone, onCancel }: { item?: WardrobeItem; 
         <option value="">—</option>
         {(['CLOTHES', 'SHOES'] as const).map((k) => (
           <optgroup key={k} label={t(k === 'CLOTHES' ? 'wardrobe.clothes' : 'wardrobe.shoes')}>
-            {catalog?.categories.filter((c) => c.kind === k).map((c) => <option key={c.id} value={c.id}>{localName(c)}</option>)}
+            {visibleCats.filter((c) => c.kind === k).map((c) => <option key={c.id} value={c.id}>{localName(c)}</option>)}
           </optgroup>
         ))}
       </SelectField>
+
+      {isBusiness && (
+        <>
+          <TextField label={t('wardrobe.location')} hint={t('wardrobe.locationHint')} optional list="wd-locations" value={f.location} maxLength={60} onChange={(e) => setF({ ...f, location: e.target.value })} />
+          <datalist id="wd-locations">{locations.map((l) => <option key={l} value={l} />)}</datalist>
+        </>
+      )}
 
       <ColorPicker hex={f.colorHex} name={f.color} onChange={(colorHex, color) => setF({ ...f, colorHex, color })} />
 
@@ -223,6 +236,7 @@ export function WardrobeForm({ item, onDone, onCancel }: { item?: WardrobeItem; 
         </div>
       </div>
       <p className="hint" id="wd-value-hint">{t('wardrobe.valueHint')}</p>
+      <TextField label={t('wardrobe.acquired')} hint={t('wardrobe.acquiredHint')} optional type="date" max={today} value={f.acquiredOn} onChange={(e) => setF({ ...f, acquiredOn: e.target.value })} />
 
       <TextArea label={t('wardrobe.care')} optional placeholder={t('wardrobe.carePlaceholder')} value={f.careNotes} onChange={(e) => setF({ ...f, careNotes: e.target.value })} maxLength={300} />
       <ErrorBox error={error} />
@@ -234,14 +248,42 @@ export function WardrobeForm({ item, onDone, onCancel }: { item?: WardrobeItem; 
   );
 }
 
+/** Wear bar + values: how much of the item's value is left, and whether it's time to replace it. */
+export function DepreciationPanel({ dep, quantity }: { dep: Depreciation; quantity: number }) {
+  const { t, money } = useI18n();
+  if (dep.currentValue == null) return <p className="small muted">{t('wardrobe.dep.noValue')}</p>;
+  const pct = Math.round(dep.remainingShare * 100);
+  const tone = dep.replaceSuggested ? 'low' : pct <= 50 ? 'mid' : 'high';
+  return (
+    <div className={`dep dep-${tone}`}>
+      <span className="muted small">{t('wardrobe.dep.title')}</span>
+      <div className="dep-value num-display">{money(dep.totalCurrent ?? 0)}</div>
+      <span className="muted small">
+        {quantity > 1 && <>{money(dep.currentValue)} × {quantity} · </>}
+        {t('wardrobe.dep.original')}: {money(dep.totalOriginal ?? 0)}
+      </span>
+      <div className="dep-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={t('wardrobe.dep.remaining', { p: pct })}>
+        <span style={{ width: `${pct}%` }} />
+      </div>
+      <p className="small"><strong>{t('wardrobe.dep.remaining', { p: pct })}</strong>. {t('wardrobe.dep.owned', { m: dep.ageMonths, l: dep.lifespanMonths })}</p>
+      <p className={`small dep-advice`}>{dep.replaceSuggested ? t('wardrobe.dep.replace') : t('wardrobe.dep.left', { m: dep.monthsLeft })}</p>
+      <p className="hint">{t('wardrobe.dep.note')}</p>
+    </div>
+  );
+}
+
 function ItemDetail({ item, onEdit, onDeleted, onClose }: { item: WardrobeItem; onEdit: () => void; onDeleted: () => void; onClose: () => void }) {
-  const { t, money, date } = useI18n();
+  const { t, date } = useI18n();
   const { catalog } = useCatalog();
   const localName = useLocalName();
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const cat = catalog?.categories.find((c) => c.id === item.categoryId);
+  const presetName = (hex: string | null) => {
+    const c = COLORS.find((x) => x.hex && hex && x.hex.toLowerCase() === hex.toLowerCase());
+    return c ? t(`color.${c.key}` as MessageKey) : '';
+  };
   const remove = async () => {
     if (!confirm(t('wardrobe.deleteConfirm', { name: item.name }))) return;
     setBusy(true);
@@ -261,15 +303,12 @@ function ItemDetail({ item, onEdit, onDeleted, onClose }: { item: WardrobeItem; 
       <h2 className="num-display" style={{ fontSize: '1.5rem' }}>{item.name}</h2>
       <div className="facts-chips">
         {cat && <span className="fact-chip">{localName(cat)}</span>}
-        {(item.color || item.colorHex) && <span className="fact-chip"><ColorDot hex={item.colorHex} name={item.color} />{item.color || item.colorHex}</span>}
+        {(item.color || item.colorHex) && <span className="fact-chip"><ColorDot hex={item.colorHex} name={item.color} />{item.color || presetName(item.colorHex) || t('wardrobe.color')}</span>}
         <span className="fact-chip">× {item.quantity}</span>
+        {item.location && <span className="fact-chip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.5" /></svg>{item.location}</span>}
+        {item.inCleaning && <span className="fact-chip fact-chip-info">{t('wardrobe.inCleaning')}</span>}
       </div>
-      <div className="row-between">
-        <span className="muted">{t('wardrobe.value')}</span>
-        <strong className="num-display" style={{ fontSize: '1.3rem' }}>
-          {item.purchaseValue != null ? money(item.purchaseValue) : <span className="muted small">{t('wardrobe.noValue')}</span>}
-        </strong>
-      </div>
+      <DepreciationPanel dep={item.depreciation} quantity={item.quantity} />
       {item.careNotes && <p>{item.careNotes}</p>}
       <div className="history">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
@@ -298,37 +337,51 @@ export function WardrobePage() {
   const toast = useToast();
   const localName = useLocalName();
   const { catalog } = useCatalog();
+  const { user } = useAuth();
+  const visibleCats = useVisibleCategories();
+  const isBusiness = user?.accountType === 'BUSINESS';
   const [filter, setFilter] = useState<{ kind: '' | 'CLOTHES' | 'SHOES'; categoryId: string }>({ kind: '', categoryId: '' });
+  const [location, setLocation] = useState('');
+  const [replaceOnly, setReplaceOnly] = useState(false);
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<'recent' | 'name' | 'value'>('recent');
+  const [sort, setSort] = useState<'recent' | 'name' | 'value' | 'worn'>('recent');
   const [pageSize, setPageSize] = useState(24);
   useEffect(() => {
     const id = setTimeout(() => setQuery(q.trim()), 300);
     return () => clearTimeout(id);
   }, [q]);
-  const qs = new URLSearchParams({ pageSize: String(pageSize), sort, ...(filter.kind ? { kind: filter.kind } : {}), ...(filter.categoryId ? { categoryId: filter.categoryId } : {}), ...(query ? { q: query } : {}) });
+  const qs = new URLSearchParams({
+    pageSize: String(pageSize), sort,
+    ...(filter.kind ? { kind: filter.kind } : {}), ...(filter.categoryId ? { categoryId: filter.categoryId } : {}),
+    ...(query ? { q: query } : {}), ...(location ? { location } : {}), ...(replaceOnly ? { replace: 'true' } : {}),
+  });
   const list = useLoad<Paged<WardrobeItem> & { stats: WardrobeStats }>(`/me/wardrobe?${qs}`);
   const [editing, setEditing] = useState<WardrobeItem | 'new' | null>(null);
   const [viewing, setViewing] = useState<WardrobeItem | null>(null);
   const stats = list.data?.stats;
 
   const chips = useMemo(() => {
-    const cats = catalog?.categories ?? [];
+    const used = new Set(list.data?.items.map((i) => i.categoryId));
+    const cats = visibleCats.filter((c) => !isBusiness || c.segment === 'BUSINESS' || used.has(c.id));
     return [
       { label: t('wardrobe.all'), value: { kind: '' as const, categoryId: '' } },
-      { label: t('wardrobe.clothes'), value: { kind: 'CLOTHES' as const, categoryId: '' } },
-      { label: t('wardrobe.shoes'), value: { kind: 'SHOES' as const, categoryId: '' } },
+      ...(isBusiness ? [] : [
+        { label: t('wardrobe.clothes'), value: { kind: 'CLOTHES' as const, categoryId: '' } },
+        { label: t('wardrobe.shoes'), value: { kind: 'SHOES' as const, categoryId: '' } },
+      ]),
       ...cats.map((c) => ({ label: localName(c), value: { kind: '' as const, categoryId: c.id } })),
     ];
-  }, [catalog, t, localName]);
+  }, [visibleCats, isBusiness, list.data, t, localName]);
 
   const empty = stats && stats.items === 0;
+  const amount = (n: number) => money(n).replace(' RWF', '');
 
   return (
     <div className="stack">
-      <PageTitle>{t('wardrobe.title')}</PageTitle>
-      <p className="muted" style={{ marginTop: '.25rem' }}>{t('wardrobe.subtitle')}</p>
+      <PageTitle>{isBusiness ? t('wardrobe.inventoryTitle') : t('wardrobe.title')}</PageTitle>
+      <p className="muted" style={{ marginTop: '.25rem' }}>{isBusiness ? t('wardrobe.inventorySubtitle') : t('wardrobe.subtitle')}</p>
+      {isBusiness && user?.businessName && <p className="biz-badge">{user.businessName}</p>}
 
       {stats && !empty && (
         <dl className="wd-summary" aria-label={t('wardrobe.title')}>
@@ -337,10 +390,17 @@ export function WardrobePage() {
             <dd>{stats.items}</dd>
           </div>
           <div>
-            <dt>{t('wardrobe.statValue')}</dt>
-            <dd>{money(stats.totalValue).replace(' RWF', '')}<span style={{ fontSize: '.9rem', fontWeight: 700 }}> RWF</span></dd>
+            <dt>{t('wardrobe.statCurrent')}</dt>
+            <dd>{amount(stats.currentValue)}<span className="dd-unit"> RWF</span></dd>
           </div>
-          <p className="sub">{t('wardrobe.statSplit', { c: stats.clothes, s: stats.shoes })}, {t('wardrobe.statPieces', { n: stats.pieces })}</p>
+          <p className="sub">
+            {t('wardrobe.statValue')}: {money(stats.totalValue)}. {t('wardrobe.statPieces', { n: stats.pieces })}.
+          </p>
+          {stats.toReplace > 0 && (
+            <button type="button" className={`replace-pill${replaceOnly ? ' on' : ''}`} aria-pressed={replaceOnly} onClick={() => setReplaceOnly((v) => !v)}>
+              {t('wardrobe.toReplace', { n: stats.toReplace })}
+            </button>
+          )}
         </dl>
       )}
 
@@ -355,8 +415,18 @@ export function WardrobePage() {
               <option value="recent">{t('wardrobe.sort.recent')}</option>
               <option value="name">{t('wardrobe.sort.name')}</option>
               <option value="value">{t('wardrobe.sort.value')}</option>
+              <option value="worn">{t('wardrobe.sort.worn')}</option>
             </select>
           </div>
+          {isBusiness && stats && stats.locations.length > 0 && (
+            <div className="chips" role="group" aria-label={t('wardrobe.location')}>
+              {['', ...stats.locations].map((l) => (
+                <button key={l || 'all'} type="button" className="chip chip-loc" aria-pressed={location === l} onClick={() => setLocation(l)}>
+                  {l || t('wardrobe.allLocations')}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="chips" role="group" aria-label={t('wardrobe.filter')}>
             {chips.map((c) => {
               const on = filter.kind === c.value.kind && filter.categoryId === c.value.categoryId;
@@ -385,20 +455,29 @@ export function WardrobePage() {
       <ul className="wd-grid">
         {list.data?.items.map((w) => {
           const cat = catalog?.categories.find((c) => c.id === w.categoryId);
+          const dep = w.depreciation;
           return (
             <li key={w.id}>
               <button type="button" className="wd-card" onClick={() => setViewing(w)} aria-label={`${w.name}${w.color ? `, ${w.color}` : ''}`}>
                 <div className="wd-media">
                   {w.photoUrl ? <img src={w.photoUrl} alt="" loading="lazy" decoding="async" /> : <Silhouette shape={silhouetteFor(w.categoryCode, w.kind)} hex={w.colorHex} />}
                   {w.quantity > 1 && <span className="wd-qty">×{w.quantity}</span>}
+                  {w.inCleaning ? <span className="wd-flag wd-flag-info">{t('wardrobe.inCleaning')}</span>
+                    : dep.replaceSuggested && dep.currentValue != null ? <span className="wd-flag wd-flag-warn">{t('wardrobe.replaceBadge')}</span> : null}
+                  {dep.currentValue != null && <span className="wd-wear" aria-hidden="true"><span style={{ width: `${Math.round(dep.remainingShare * 100)}%` }} className={dep.replaceSuggested ? 'low' : dep.remainingShare <= 0.5 ? 'mid' : 'high'} /></span>}
                 </div>
                 <div className="wd-body">
                   <span className="wd-name">{w.name}</span>
                   <span className="wd-meta">
                     {(w.colorHex || w.color) && <ColorDot hex={w.colorHex} name={w.color} size={12} />}
-                    <span>{cat ? localName(cat) : ''}</span>
+                    <span>{isBusiness && w.location ? w.location : cat ? localName(cat) : ''}</span>
                   </span>
-                  {w.purchaseValue != null && <span className="wd-value">{money(w.purchaseValue)}</span>}
+                  {dep.currentValue != null && (
+                    <span className="wd-value">
+                      {t('wardrobe.nowWorth', { value: money(dep.currentValue) })}
+                      {dep.currentValue !== w.purchaseValue && <s className="wd-was">{money(w.purchaseValue ?? 0)}</s>}
+                    </span>
+                  )}
                 </div>
               </button>
             </li>
@@ -426,6 +505,7 @@ export function WardrobePage() {
         <Sheet title={editing === 'new' ? t('wardrobe.newTitle') : t('wardrobe.editTitle')} onClose={() => setEditing(null)}>
           <WardrobeForm
             item={editing === 'new' ? undefined : editing}
+            locations={stats?.locations ?? []}
             onCancel={() => setEditing(null)}
             onDone={(w) => { setEditing(null); toast(t('wardrobe.savedToast')); list.reload(); if (editing !== 'new') setViewing(w); }}
           />

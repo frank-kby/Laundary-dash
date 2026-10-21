@@ -12,6 +12,7 @@ import { addOrderEvent, computeOrderPrice, decideRevision, lockOrder, proposeRev
 import { orderDetail, orderSummaryDto } from '../services/orderView.js';
 import { orderBalance, paymentDto, recordManualPayment, refreshOrderPaymentStatus, verifyWithProvider } from '../services/payments.js';
 import { hashPassword, issueResetToken, passwordSchema, userDto } from './auth.js';
+import { getContact, setContact } from '../services/settings.js';
 import { areaDto, categoryDto, serviceDto } from './catalog.js';
 import { planDto, subscriptionDto } from './subscriptions.js';
 import { sendPhoto } from './me.js';
@@ -419,20 +420,29 @@ adminRouter.put('/service-areas/:id', adminOnly, async (req, res) => {
   res.json({ area: areaDto(a) });
 });
 
-const categorySchema = z.object({ code: z.string().trim().regex(/^[A-Z0-9_]{2,30}$/), kind: z.enum(['CLOTHES', 'SHOES']), nameEn: z.string().trim().min(2).max(60), nameRw: z.string().trim().min(2).max(60), active: z.boolean().default(true) });
+const categorySchema = z.object({
+  code: z.string().trim().regex(/^[A-Z0-9_]{2,30}$/),
+  kind: z.enum(['CLOTHES', 'SHOES']),
+  nameEn: z.string().trim().min(2).max(60),
+  nameRw: z.string().trim().min(2).max(60),
+  gender: z.enum(['ANY', 'FEMALE', 'MALE']).default('ANY'),
+  segment: z.enum(['PERSONAL', 'BUSINESS']).default('PERSONAL'),
+  lifespanMonths: z.number().int().min(1).max(240).default(36),
+  active: z.boolean().default(true),
+});
 adminRouter.get('/categories', async (_req, res) => {
   res.json({ items: (await q(pool, 'SELECT * FROM garment_categories ORDER BY sort_order, name_en')).map(categoryDto) });
 });
 adminRouter.post('/categories', adminOnly, async (req, res) => {
   const b = categorySchema.parse(req.body);
-  const c = await uniqueOr409(() => one(pool, 'INSERT INTO garment_categories (code,kind,name_en,name_rw,active,sort_order) VALUES ($1,$2,$3,$4,$5,100) RETURNING *', [b.code, b.kind, b.nameEn, b.nameRw, b.active]));
+  const c = await uniqueOr409(() => one(pool, 'INSERT INTO garment_categories (code,kind,name_en,name_rw,gender,segment,lifespan_months,active,sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,100) RETURNING *', [b.code, b.kind, b.nameEn, b.nameRw, b.gender, b.segment, b.lifespanMonths, b.active]));
   await audit(pool, { actorId: req.user!.id, action: 'category.create', entityType: 'category', entityId: c.id, after: b, ip: req.ip });
   res.status(201).json({ category: categoryDto(c) });
 });
 adminRouter.put('/categories/:id', adminOnly, async (req, res) => {
   const b = categorySchema.parse(req.body);
   const id = idParam(req);
-  const c = await uniqueOr409(() => one(pool, 'UPDATE garment_categories SET code=$2,kind=$3,name_en=$4,name_rw=$5,active=$6 WHERE id=$1 RETURNING *', [id, b.code, b.kind, b.nameEn, b.nameRw, b.active]));
+  const c = await uniqueOr409(() => one(pool, 'UPDATE garment_categories SET code=$2,kind=$3,name_en=$4,name_rw=$5,gender=$6,segment=$7,lifespan_months=$8,active=$9 WHERE id=$1 RETURNING *', [id, b.code, b.kind, b.nameEn, b.nameRw, b.gender, b.segment, b.lifespanMonths, b.active]));
   if (!c) throw notFound();
   await audit(pool, { actorId: req.user!.id, action: 'category.update', entityType: 'category', entityId: id, after: b, ip: req.ip });
   res.json({ category: categoryDto(c) });
@@ -482,6 +492,24 @@ adminRouter.post('/subscription-plans', adminOnly, async (req, res) => {
 });
 adminRouter.put('/subscription-plans/:id', adminOnly, async (req, res) => {
   res.json({ plan: await uniqueOr409(() => savePlan(idParam(req), planSchema.parse(req.body), req)) });
+});
+
+// ----- Business contact numbers shown to customers (WhatsApp + phone) -----
+adminRouter.get('/settings/contact', async (_req, res) => {
+  res.json({ contact: await getContact(pool) });
+});
+
+adminRouter.put('/settings/contact', adminOnly, async (req, res) => {
+  const b = z.object({ phone: z.string().trim().max(20), whatsapp: z.string().trim().max(20) }).parse(req.body);
+  const phone = normalizePhone(b.phone);
+  const wa = normalizePhone(b.whatsapp);
+  if (!phone) throw badRequest('Enter a valid phone number for calls, e.g. 078 123 4567.', [{ path: 'phone', message: 'invalid' }]);
+  if (!wa) throw badRequest('Enter a valid WhatsApp number, e.g. 078 123 4567.', [{ path: 'whatsapp', message: 'invalid' }]);
+  const before = await getContact(pool);
+  const value = { phone, whatsapp: wa.replace(/\D/g, '') }; // wa.me needs digits only, no +
+  await setContact(pool, value, req.user!.id);
+  await audit(pool, { actorId: req.user!.id, action: 'settings.contact', entityType: 'app_settings', entityId: 'contact', before, after: value, ip: req.ip });
+  res.json({ contact: { ...value, source: 'settings' } });
 });
 
 // ----- Pickup slots -----

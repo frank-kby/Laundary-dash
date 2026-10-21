@@ -10,12 +10,15 @@ export default defineConfig({
       injectRegister: 'script-defer', // external script, compatible with the strict CSP (no inline JS)
       includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
+        id: '/',
         name: 'Laundry Dash',
         short_name: 'Laundry Dash',
         description: 'Laundry pickup and delivery in Kigali',
-        theme_color: '#14213D',
+        theme_color: '#13203b',
         background_color: '#F6F9FC',
         display: 'standalone',
+        orientation: 'portrait',
+        categories: ['lifestyle', 'shopping'],
         start_url: '/',
         scope: '/',
         lang: 'en',

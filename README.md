@@ -14,6 +14,19 @@ English and Kinyarwanda from day one.
 In production one web service serves both the API and the built PWA from the same origin, which keeps cookies
 first-party and avoids CORS entirely.
 
+### Highlights
+- **Guests can look around first** — prices, how it works, and building a booking need no account; a sign-up sheet
+  appears only when they confirm a booking, choose a plan or save to the wardrobe (their draft is kept).
+- **Personal or Business accounts.** Business accounts (apartments, hotels, clothes rentals, restaurants, salons…)
+  get an *Inventory* for linens, towels, uniforms and curtains, tracked per property/unit.
+- **Gender preference** narrows clothing types (e.g. ties for men, skirts for women); everyone can choose "Everyone".
+- **Depreciation** — each item's value today is estimated straight-line over its garment type's typical life
+  (editable by admins in *Settings → Garment types*); items with ≤ 20 % left are flagged "Replace soon".
+- **Contact numbers** — admins set the WhatsApp and call numbers customers see in *Settings → Contact numbers*
+  (falls back to `SUPPORT_WHATSAPP` / `SUPPORT_PHONE`).
+- **Install on iPhone**: open the site in Safari → Share → *Add to Home Screen*. It opens full screen like an app.
+  Android/Chrome shows an *Install* button.
+
 ---
 
 ## 1. Local development

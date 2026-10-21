@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { get } from './api';
+import { useAuth } from './auth';
 import { useI18n } from './i18n';
 import type { Area, Category, Service } from './types';
 
@@ -37,3 +38,17 @@ export function useLocalName() {
 
 /** Unit price for a service + category, honouring per-category overrides (display only — server is authoritative). */
 export const unitPriceFor = (s: Service, categoryId?: string) => s.categoryPrices.find((p) => p.categoryId === categoryId)?.unitPrice ?? s.unitPrice;
+
+/**
+ * Categories relevant to the signed-in customer:
+ * - business accounts see business stock types (linens, uniforms…) first, then everything else (rentals need all);
+ * - personal accounts see personal types, filtered by their gender preference when set;
+ * - guests see all personal types.
+ */
+export function useVisibleCategories(): Category[] {
+  const { catalog } = useCatalog();
+  const { user } = useAuth();
+  const all = catalog?.categories ?? [];
+  if (user?.accountType === 'BUSINESS') return [...all.filter((c) => c.segment === 'BUSINESS'), ...all.filter((c) => c.segment !== 'BUSINESS')];
+  return all.filter((c) => c.segment === 'PERSONAL' && (c.gender === 'ANY' || !user?.gender || c.gender === user.gender));
+}

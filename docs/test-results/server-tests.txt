@@ -1,0 +1,12 @@
+
+ RUN  v5.0.5 /home/claude/laundry-dash/server
+
+
+ Test Files  12 passed (12)
+      Tests  98 passed (98)
+   Start at  13:01:30
+   Duration  19.70s (tests 61%, import 37%, transform 1%)
+
+    Isolate  12 workers spawned · ~173ms startup each (spawn + environment, per file)
+             at least ~1.90s faster with isolate: false — reuses workers across files instead of one per file
+

@@ -9,8 +9,9 @@ import { badRequest, conflict, notFound, unauthorized, AppError } from '../error
 import { idParam, paged, pagination } from '../http.js';
 import { normalizeEmail, normalizePhone } from '../identifiers.js';
 import { sniffImage, storage } from '../providers/storage.js';
+import { depreciate, REMAINING_SHARE_SQL, REPLACE_THRESHOLD } from '../domain/depreciation.js';
 import { requireAuth, destroyAllSessionsForUser, createSession } from '../auth/session.js';
-import { hashPassword, passwordSchema, userDto } from './auth.js';
+import { hashPassword, passwordSchema, profileFields, resolveProfile, userDto } from './auth.js';
 
 export const meRouter = Router();
 meRouter.use(requireAuth);
@@ -27,6 +28,7 @@ const patchMe = z.object({
   phone: z.string().trim().max(20).nullable().optional(),
   currentPassword: z.string().max(128).optional(),
   newPassword: passwordSchema.optional(),
+  ...profileFields,
 });
 
 meRouter.patch('/', async (req, res) => {
@@ -44,13 +46,16 @@ meRouter.patch('/', async (req, res) => {
   if (b.phone && !phone) throw badRequest('Please enter a valid phone number.');
   if (!email && !phone) throw badRequest('Keep at least an email address or a phone number.');
   const pwHash = b.newPassword ? await hashPassword(b.newPassword) : cur.password_hash;
+  const profile = resolveProfile(b, cur);
   try {
     const u = await tx(async (c) => {
       const u = await one(
         c,
-        `UPDATE users SET full_name = $2, preferred_language = $3, email = $4, phone = $5, password_hash = $6, updated_at = now()
+        `UPDATE users SET full_name = $2, preferred_language = $3, email = $4, phone = $5, password_hash = $6,
+                account_type = $7, gender = $8, business_name = $9, business_type = $10, updated_at = now()
          WHERE id = $1 RETURNING *`,
-        [cur.id, b.fullName ?? cur.full_name, b.preferredLanguage ?? cur.preferred_language, email, phone, pwHash],
+        [cur.id, b.fullName ?? cur.full_name, b.preferredLanguage ?? cur.preferred_language, email, phone, pwHash,
+         profile.accountType, profile.gender, profile.businessName, profile.businessType],
       );
       if (b.newPassword) {
         // Changing the password signs out every other device; this device gets a fresh session.
@@ -163,6 +168,7 @@ meRouter.delete('/addresses/:id', async (req, res) => {
 });
 
 // ---------- Wardrobe ----------
+const todayIso = () => new Date().toISOString().slice(0, 10);
 const hex = z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Colour must look like #1F5FA8.');
 // Note: no .default() here so that .partial() on PATCH leaves unspecified fields untouched.
 const wardrobeFields = {
@@ -173,11 +179,16 @@ const wardrobeFields = {
   quantity: z.coerce.number().int().min(1).max(100),
   purchaseValue: z.coerce.number().int('Enter a whole number of RWF.').min(0).max(100_000_000).nullable(),
   careNotes: z.string().trim().max(300),
+  acquiredOn: z.iso.date('Use a date like 2025-06-30.').nullable().refine((d) => !d || (d >= '1950-01-01' && d <= todayIso()), 'The purchase date cannot be in the future.'),
+  location: z.string().trim().max(60),
 };
 const wardrobeCreateSchema = z.object(wardrobeFields).partial().required({ categoryId: true, name: true });
 const wardrobePatchSchema = z.object(wardrobeFields).partial();
 
-export const wardrobeDto = (w: any) => ({
+export const wardrobeDto = (w: any) => {
+  const acquired = w.acquired_on ? new Date(w.acquired_on) : new Date(w.created_at);
+  const dep = depreciate({ value: w.purchase_value ?? null, quantity: w.quantity, acquiredOn: acquired, lifespanMonths: w.lifespan_months ?? 36 });
+  return {
   id: w.id,
   kind: w.kind,
   categoryId: w.category_id,
@@ -192,9 +203,15 @@ export const wardrobeDto = (w: any) => ({
   photoUrl: w.photo_key ? `/api/v1/me/wardrobe/${w.id}/photo?v=${encodeURIComponent(w.photo_key.slice(-8))}` : null,
   timesCleaned: w.times_cleaned ?? 0,
   lastCleanedAt: w.last_cleaned_at ?? null,
+  inCleaning: !!w.in_cleaning,
+  acquiredOn: w.acquired_on ? toIsoDate(w.acquired_on) : null,
+  location: w.location ?? '',
+  depreciation: dep,
   createdAt: w.created_at,
   updatedAt: w.updated_at,
-});
+  };
+};
+const toIsoDate = (d: Date | string) => (typeof d === 'string' ? d.slice(0, 10) : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
 
 async function category(id: string) {
   const c = await one(pool, 'SELECT * FROM garment_categories WHERE id = $1 AND active', [id]);
@@ -208,13 +225,19 @@ const CLEAN_STATS = `
     SELECT count(DISTINCT oi.order_id)::int AS times_cleaned, max(o.updated_at) AS last_cleaned_at
       FROM order_items oi JOIN orders o ON o.id = oi.order_id
      WHERE oi.wardrobe_item_id = w.id AND o.status = 'DELIVERED'
-  ) cs ON true`;
+  ) cs ON true
+  LEFT JOIN LATERAL (
+    SELECT true AS in_cleaning FROM order_items oi JOIN orders o ON o.id = oi.order_id
+     WHERE oi.wardrobe_item_id = w.id AND o.status NOT IN ('DELIVERED','CANCELLED') LIMIT 1
+  ) ac ON true`;
 
 const listSchema = z.object({
   kind: z.enum(['CLOTHES', 'SHOES']).optional(),
   categoryId: z.uuid().optional(),
   q: z.string().trim().max(60).optional(),
-  sort: z.enum(['recent', 'name', 'value']).default('recent'),
+  location: z.string().trim().max(60).optional(),
+  replace: z.enum(['true']).optional(),
+  sort: z.enum(['recent', 'name', 'value', 'worn']).default('recent'),
 });
 
 meRouter.get('/wardrobe', async (req, res) => {
@@ -225,29 +248,42 @@ meRouter.get('/wardrobe', async (req, res) => {
   if (f.kind) { params.push(f.kind); where.push(`w.kind = $${params.length}`); }
   if (f.categoryId) { params.push(f.categoryId); where.push(`w.category_id = $${params.length}`); }
   if (f.q) { params.push(`%${f.q.replace(/[%_\\]/g, (m) => '\\' + m)}%`); where.push(`(w.name ILIKE $${params.length} OR w.color ILIKE $${params.length})`); }
-  const order = f.sort === 'name' ? 'w.name ASC' : f.sort === 'value' ? 'w.purchase_value DESC NULLS LAST, w.name' : 'w.updated_at DESC';
+  if (f.location) { params.push(f.location); where.push(`w.location = $${params.length}`); }
+  if (f.replace) where.push(`${REMAINING_SHARE_SQL} <= ${REPLACE_THRESHOLD}`);
+  const order =
+    f.sort === 'name' ? 'w.name ASC'
+    : f.sort === 'value' ? 'w.purchase_value DESC NULLS LAST, w.name'
+    : f.sort === 'worn' ? `${REMAINING_SHARE_SQL} ASC, w.name`
+    : 'w.updated_at DESC';
   params.push(limit, offset);
   const rows = await q(
     pool,
-    `SELECT w.*, c.code AS category_code, cs.times_cleaned, cs.last_cleaned_at, count(*) OVER()::int AS total
+    `SELECT w.*, c.code AS category_code, c.lifespan_months, cs.times_cleaned, cs.last_cleaned_at, ac.in_cleaning, count(*) OVER()::int AS total
        FROM wardrobe_items w JOIN garment_categories c ON c.id = w.category_id ${CLEAN_STATS}
       WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );
-  // Whole-wardrobe totals (independent of filters) for the summary header.
-  const stats = await one(
+  // Whole-wardrobe totals (independent of filters) for the summary header, incl. depreciated value.
+  const all = await q(
     pool,
-    `SELECT count(*)::int AS items, COALESCE(sum(quantity),0)::int AS pieces,
-            COALESCE(sum(purchase_value::bigint * quantity),0)::bigint AS total_value,
-            count(*) FILTER (WHERE kind = 'CLOTHES')::int AS clothes, count(*) FILTER (WHERE kind = 'SHOES')::int AS shoes,
-            count(*) FILTER (WHERE photo_key IS NOT NULL)::int AS with_photos
-       FROM wardrobe_items WHERE user_id = $1 AND deleted_at IS NULL`,
+    `SELECT w.kind, w.quantity, w.purchase_value, w.acquired_on, w.created_at, w.photo_key, w.location, c.lifespan_months
+       FROM wardrobe_items w JOIN garment_categories c ON c.id = w.category_id WHERE w.user_id = $1 AND w.deleted_at IS NULL`,
     [req.user!.id],
   );
-  res.json({
-    ...paged(rows.map(wardrobeDto), rows[0]?.total ?? 0, page, pageSize),
-    stats: { items: stats.items, pieces: stats.pieces, totalValue: Number(stats.total_value), clothes: stats.clothes, shoes: stats.shoes, withPhotos: stats.with_photos },
-  });
+  const stats = { items: all.length, pieces: 0, totalValue: 0, currentValue: 0, clothes: 0, shoes: 0, withPhotos: 0, toReplace: 0, locations: [] as string[] };
+  const locs = new Set<string>();
+  for (const r of all) {
+    const d = depreciate({ value: r.purchase_value, quantity: r.quantity, acquiredOn: new Date(r.acquired_on ?? r.created_at), lifespanMonths: r.lifespan_months });
+    stats.pieces += r.quantity;
+    stats.totalValue += d.totalOriginal ?? 0;
+    stats.currentValue += d.totalCurrent ?? 0;
+    if (r.kind === 'CLOTHES') stats.clothes++; else stats.shoes++;
+    if (r.photo_key) stats.withPhotos++;
+    if (d.replaceSuggested) stats.toReplace++;
+    if (r.location) locs.add(r.location);
+  }
+  stats.locations = [...locs].sort((a, b) => a.localeCompare(b));
+  res.json({ ...paged(rows.map(wardrobeDto), rows[0]?.total ?? 0, page, pageSize), stats });
 });
 
 meRouter.post('/wardrobe', async (req, res) => {
@@ -257,9 +293,9 @@ meRouter.post('/wardrobe', async (req, res) => {
   if (count.n >= 500) throw conflict('LIMIT_REACHED', 'Your wardrobe is full (500 items).');
   const w = await one(
     pool,
-    `INSERT INTO wardrobe_items (user_id, kind, category_id, name, color, color_hex, quantity, purchase_value, care_notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *, $10::text AS category_code`,
-    [req.user!.id, c.kind, c.id, b.name, b.color ?? '', b.colorHex ?? null, b.quantity ?? 1, b.purchaseValue ?? null, b.careNotes ?? '', c.code],
+    `INSERT INTO wardrobe_items (user_id, kind, category_id, name, color, color_hex, quantity, purchase_value, care_notes, acquired_on, location)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *, $12::text AS category_code, $13::int AS lifespan_months`,
+    [req.user!.id, c.kind, c.id, b.name, b.color ?? '', b.colorHex ?? null, b.quantity ?? 1, b.purchaseValue ?? null, b.careNotes ?? '', b.acquiredOn ?? null, b.location ?? '', c.code, c.lifespan_months],
   );
   res.status(201).json({ item: wardrobeDto(w) });
 });
@@ -267,7 +303,7 @@ meRouter.post('/wardrobe', async (req, res) => {
 async function ownWardrobe(req: express.Request) {
   const w = await one(
     pool,
-    `SELECT w.*, c.code AS category_code, cs.times_cleaned, cs.last_cleaned_at
+    `SELECT w.*, c.code AS category_code, c.lifespan_months, cs.times_cleaned, cs.last_cleaned_at, ac.in_cleaning
        FROM wardrobe_items w JOIN garment_categories c ON c.id = w.category_id ${CLEAN_STATS}
       WHERE w.id = $1 AND w.user_id = $2 AND w.deleted_at IS NULL`,
     [idParam(req), req.user!.id],
@@ -288,12 +324,14 @@ meRouter.patch('/wardrobe/:id', async (req, res) => {
   // Editing never touches order_items: orders hold their own snapshot.
   const w = await one(
     pool,
-    `UPDATE wardrobe_items SET kind=$2, category_id=$3, name=$4, color=$5, color_hex=$6, quantity=$7, purchase_value=$8, care_notes=$9, updated_at=now()
-      WHERE id = $1 RETURNING *, $10::text AS category_code`,
+    `UPDATE wardrobe_items SET kind=$2, category_id=$3, name=$4, color=$5, color_hex=$6, quantity=$7, purchase_value=$8, care_notes=$9,
+            acquired_on=$10, location=$11, updated_at=now()
+      WHERE id = $1 RETURNING *, $12::text AS category_code, $13::int AS lifespan_months`,
     [cur.id, c?.kind ?? cur.kind, c?.id ?? cur.category_id, pick(b.name, cur.name), pick(b.color, cur.color), pick(b.colorHex, cur.color_hex),
-     pick(b.quantity, cur.quantity), pick(b.purchaseValue, cur.purchase_value), pick(b.careNotes, cur.care_notes), c?.code ?? cur.category_code],
+     pick(b.quantity, cur.quantity), pick(b.purchaseValue, cur.purchase_value), pick(b.careNotes, cur.care_notes),
+     b.acquiredOn === undefined ? cur.acquired_on : b.acquiredOn, pick(b.location, cur.location), c?.code ?? cur.category_code, c?.lifespan_months ?? cur.lifespan_months],
   );
-  res.json({ item: wardrobeDto({ ...w, times_cleaned: cur.times_cleaned, last_cleaned_at: cur.last_cleaned_at }) });
+  res.json({ item: wardrobeDto({ ...w, times_cleaned: cur.times_cleaned, last_cleaned_at: cur.last_cleaned_at, in_cleaning: cur.in_cleaning }) });
 });
 
 meRouter.delete('/wardrobe/:id', async (req, res) => {

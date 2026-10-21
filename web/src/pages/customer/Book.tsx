@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { newKey, post } from '../../api';
-import { unitPriceFor, useCatalog, useLocalName } from '../../catalog';
+import { unitPriceFor, useCatalog, useLocalName, useVisibleCategories } from '../../catalog';
+import { useAuth } from '../../auth';
+import { AuthSheet } from './Auth';
 import { useI18n } from '../../i18n';
 import type { Address, OrderDetail, Paged, Pricing, Service, Slot, WardrobeItem } from '../../types';
 import { PageTitle } from '../../components/Layout';
@@ -73,6 +75,7 @@ function ItemAdder({ services, onAdd, wardrobe, initialWid = '' }: { services: S
   const { t, money } = useI18n();
   const name = useLocalName();
   const { catalog } = useCatalog();
+  const visibleCats = useVisibleCategories();
   const [mode, setMode] = useState<'manual' | 'wardrobe'>(wardrobe.length || initialWid ? 'wardrobe' : 'manual');
   const [wid, setWid] = useState(initialWid);
   const [desc, setDesc] = useState('');
@@ -136,7 +139,7 @@ function ItemAdder({ services, onAdd, wardrobe, initialWid = '' }: { services: S
             <option value="">—</option>
             {(['CLOTHES', 'SHOES'] as const).map((k) => (
               <optgroup key={k} label={t(k === 'CLOTHES' ? 'wardrobe.clothes' : 'wardrobe.shoes')}>
-                {catalog?.categories.filter((c) => c.kind === k).map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
+                {visibleCats.filter((c) => c.kind === k).map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
               </optgroup>
             ))}
           </SelectField>
@@ -175,13 +178,15 @@ export function BookPage() {
   const preselect = params.get('wardrobe') ?? '';
   const local = useLocalName();
   const { catalog, error: catErr, reload: catReload } = useCatalog();
-  const wardrobe = useLoad<Paged<WardrobeItem>>('/me/wardrobe?pageSize=100');
-  const addresses = useLoad<{ items: Address[] }>('/me/addresses');
+  const { user } = useAuth();
+  const wardrobe = useLoad<Paged<WardrobeItem>>(user ? '/me/wardrobe?pageSize=100' : null);
+  const addresses = useLoad<{ items: Address[] }>(user ? '/me/addresses' : null);
+  const [askAuth, setAskAuth] = useState(false);
   const slots = useLoad<{ items: Slot[] }>('/pickup-slots?days=7');
 
   const [step, setStep] = useState<Step>('items');
   const [items, setItems] = useState<DraftItem[]>([]);
-  const [addressId, setAddressId] = useState<string>('');
+  const [addressId, setAddressId] = useState<string>(user ? '' : 'new');
   const [newAddr, setNewAddr] = useState({ label: 'Home', serviceAreaId: '', landmark: '', street: '', details: '', contactPhone: '' });
   const [slotId, setSlotId] = useState('');
   const [deliveryPref, setDeliveryPref] = useState<'SAME' | 'OTHER' | 'COLLECT'>('SAME');
@@ -251,6 +256,10 @@ export function BookPage() {
   const area = catalog.areas.find((a) => a.id === newAddr.serviceAreaId);
 
   const confirm = async () => {
+    if (!user) {
+      setAskAuth(true); // guests create an account (or sign in) first; the draft stays as it is
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -292,7 +301,7 @@ export function BookPage() {
               </ul>
             </section>
           )}
-          {wardrobe.data ? <ItemAdder services={catalog.services} wardrobe={wardrobe.data.items} initialWid={wardrobe.data.items.some((x) => x.id === preselect) ? preselect : ''} onAdd={(d) => setItems([...items, d])} /> : <Loading block rows={1} />}
+          {!user || wardrobe.data ? <ItemAdder services={catalog.services} wardrobe={wardrobe.data?.items ?? []} initialWid={wardrobe.data?.items.some((x) => x.id === preselect) ? preselect : ''} onAdd={(d) => setItems([...items, d])} /> : <Loading block rows={1} />}
           {items.length === 0 && <p className="muted">{t('book.noItems')}</p>}
         </>
       )}
@@ -369,6 +378,14 @@ export function BookPage() {
         <Button className="btn-block" busy={busy} disabled={!quote} onClick={confirm}>
           {busy ? t('book.confirming') : quote ? `${t('book.confirm')} · ${money(quote.total)}` : t('book.confirm')}
         </Button>
+      )}
+      {askAuth && (
+        <AuthSheet
+          title={t('gate.book.title')}
+          body={t('gate.book.body')}
+          onClose={() => setAskAuth(false)}
+          onAuthed={() => setAskAuth(false)}
+        />
       )}
     </div>
   );

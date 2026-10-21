@@ -1,12 +1,13 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, post } from '../../api';
 import { useAuth } from '../../auth';
 import { useI18n } from '../../i18n';
-import type { User } from '../../types';
-import { PlainLayout } from '../../components/Layout';
-import { Button, Checkbox, ErrorBox, Notice, TextField } from '../../components/ui';
+import { BUSINESS_TYPES, type AccountType, type Gender, type User } from '../../types';
+import { LangSwitch, OfflineBanner, PlainLayout } from '../../components/Layout';
+import { Button, Checkbox, ErrorBox, Notice, SelectField, Sheet, TextField } from '../../components/ui';
 import { SupportLinks } from './Home';
+import { isStandalone } from '../../components/InstallHint';
 
 function fieldErrors(e: unknown): Record<string, string> {
   const out: Record<string, string> = {};
@@ -14,68 +15,47 @@ function fieldErrors(e: unknown): Record<string, string> {
   return out;
 }
 
-function homeFor(u: User) {
+export function homeFor(u: User) {
   return u.role === 'RIDER' ? '/rider' : u.role === 'STAFF' || u.role === 'ADMIN' ? '/staff' : '/';
 }
 
-export function LoginPage() {
+function PasswordField({ label, hint, value, onChange, autoComplete, error }: { label: string; hint?: string; value: string; onChange: (v: string) => void; autoComplete: string; error?: string }) {
   const { t } = useI18n();
-  const { setUser } = useAuth();
-  const nav = useNavigate();
-  const loc = useLocation() as { state?: { from?: string } };
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
-  const [keep, setKeep] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await post<{ user: User }>('/auth/login', { identifier, password, keepMeLoggedIn: keep });
-      setUser(r.user);
-      nav(loc.state?.from && r.user.role === 'CUSTOMER' ? loc.state.from : homeFor(r.user), { replace: true });
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <PlainLayout>
-      <h1>{t('auth.signIn')}</h1>
-      <form onSubmit={submit} className="stack" noValidate>
-        <TextField label={t('auth.identifier')} hint={t('auth.identifierHint')} value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoComplete="username" inputMode="email" required autoCapitalize="none" spellCheck={false} />
-        <TextField label={t('auth.password')} type={show ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
-        <Checkbox label={t('auth.showPassword')} checked={show} onChange={setShow} />
-        <Checkbox label={t('auth.keepMe')} hint={t('auth.keepMeHint')} checked={keep} onChange={setKeep} name="keepMeLoggedIn" />
-        <ErrorBox error={error} />
-        <Button type="submit" busy={busy} className="btn-block">{t('auth.signIn')}</Button>
-      </form>
-      <p className="center-links">
-        <Link to="/forgot-password">{t('auth.forgot')}</Link>
-      </p>
-      <p className="center-links">
-        {t('auth.noAccount')} <Link to="/register">{t('auth.register')}</Link>
-      </p>
-    </PlainLayout>
+    <div className={`field${error ? ' field-invalid' : ''}`}>
+      <label htmlFor={`pw-${autoComplete}`}>{label}</label>
+      <div className="pw-wrap">
+        <input id={`pw-${autoComplete}`} type={show ? 'text' : 'password'} value={value} onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete} required minLength={autoComplete === 'new-password' ? 8 : undefined} aria-invalid={!!error} />
+        <button type="button" className="pw-toggle" aria-label={t('auth.showPassword')} aria-pressed={show} onClick={() => setShow((s) => !s)}>
+          {show ? (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3.2 3.8M6.2 7.6A17 17 0 0 0 3 12s4 6 9 6a9.6 9.6 0 0 0 4-.9M9.9 9.9a3 3 0 0 0 4.2 4.2" /></svg>
+          ) : (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M3 12s4-6 9-6 9 6 9 6-4 6-9 6-9-6-9-6z" /><circle cx="12" cy="12" r="3" /></svg>
+          )}
+        </button>
+      </div>
+      {hint && !error && <p className="hint">{hint}</p>}
+      {error && <p className="field-error">{error}</p>}
+    </div>
   );
 }
 
-export function RegisterPage() {
+/** Sign-in / create-account form used by the welcome page and by the guest sign-up sheet. */
+export function AuthForm({ initialMode = 'register', onAuthed, compact = false }: { initialMode?: 'signin' | 'register'; onAuthed: (u: User) => void; compact?: boolean }) {
   const { t, lang } = useI18n();
-  const { setUser } = useAuth();
-  const nav = useNavigate();
-  const [mode, setMode] = useState<'phone' | 'email'>('phone');
+  const [mode, setMode] = useState(initialMode);
+  const [identifier, setIdentifier] = useState('');
   const [fullName, setFullName] = useState('');
+  const [contactMode, setContactMode] = useState<'phone' | 'email'>('phone');
   const [contact, setContact] = useState('');
   const [password, setPassword] = useState('');
-  const [show, setShow] = useState(false);
-  const [keep, setKeep] = useState(false);
+  // Installed (Home Screen) apps are personal devices and lose browser-session cookies when closed.
+  const [keep, setKeep] = useState(isStandalone());
+  const [accountType, setAccountType] = useState<AccountType>('PERSONAL');
+  const [businessName, setBusinessName] = useState('');
+  const [businessType, setBusinessType] = useState('');
+  const [gender, setGender] = useState<Gender | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const fe = fieldErrors(error);
@@ -85,15 +65,21 @@ export function RegisterPage() {
     setBusy(true);
     setError(null);
     try {
-      const r = await post<{ user: User }>('/auth/register', {
-        fullName,
-        [mode]: contact,
-        password,
-        preferredLanguage: lang,
-        keepMeLoggedIn: keep,
-      });
-      setUser(r.user);
-      nav('/', { replace: true });
+      const r =
+        mode === 'signin'
+          ? await post<{ user: User }>('/auth/login', { identifier, password, keepMeLoggedIn: keep })
+          : await post<{ user: User }>('/auth/register', {
+              fullName,
+              [contactMode]: contact,
+              password,
+              preferredLanguage: lang,
+              keepMeLoggedIn: keep,
+              accountType,
+              gender: accountType === 'PERSONAL' ? gender : null,
+              businessName: accountType === 'BUSINESS' ? businessName : null,
+              businessType: accountType === 'BUSINESS' && businessType ? businessType : null,
+            });
+      onAuthed(r.user);
     } catch (err) {
       setError(err);
     } finally {
@@ -102,30 +88,174 @@ export function RegisterPage() {
   };
 
   return (
-    <PlainLayout>
-      <h1>{t('auth.register')}</h1>
-      <p className="lede">{t('auth.registerIntro')}</p>
-      <form onSubmit={submit} className="stack" noValidate>
-        <TextField label={t('auth.fullName')} value={fullName} onChange={(e) => setFullName(e.target.value)} autoComplete="name" required error={fe.fullName} />
-        <div className="segmented" role="radiogroup" aria-label={`${t('auth.phone')} / ${t('auth.email')}`}>
-          <button type="button" role="radio" aria-checked={mode === 'phone'} className={mode === 'phone' ? 'on' : ''} onClick={() => { setMode('phone'); setContact(''); }}>{t('auth.usePhone')}</button>
-          <button type="button" role="radio" aria-checked={mode === 'email'} className={mode === 'email' ? 'on' : ''} onClick={() => { setMode('email'); setContact(''); }}>{t('auth.useEmail')}</button>
-        </div>
-        {mode === 'phone' ? (
-          <TextField key="phone" label={t('auth.phone')} hint="078 123 4567" type="tel" inputMode="tel" autoComplete="tel" value={contact} onChange={(e) => setContact(e.target.value)} required error={fe.phone} />
+    <div className={`auth-form${compact ? ' auth-form-compact' : ''}`}>
+      <div className="auth-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected={mode === 'register'} className={mode === 'register' ? 'on' : ''} onClick={() => { setMode('register'); setError(null); }}>{t('auth.tabRegister')}</button>
+        <button type="button" role="tab" aria-selected={mode === 'signin'} className={mode === 'signin' ? 'on' : ''} onClick={() => { setMode('signin'); setError(null); }}>{t('auth.tabSignIn')}</button>
+        <span className={`auth-tabs-pill${mode === 'signin' ? ' right' : ''}`} aria-hidden="true" />
+      </div>
+
+      <form key={mode} onSubmit={submit} className="stack auth-panel" noValidate>
+        {mode === 'signin' ? (
+          <>
+            <TextField label={t('auth.identifier')} hint={t('auth.identifierHint')} value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoComplete="username" inputMode="email" required autoCapitalize="none" spellCheck={false} />
+            <PasswordField label={t('auth.password')} value={password} onChange={setPassword} autoComplete="current-password" />
+          </>
         ) : (
-          <TextField key="email" label={t('auth.email')} type="email" inputMode="email" autoComplete="email" autoCapitalize="none" value={contact} onChange={(e) => setContact(e.target.value)} required error={fe.email} />
+          <>
+            <fieldset>
+              <legend className="sr-only">{t('auth.accountType')}</legend>
+              <div className="type-cards">
+                {(['PERSONAL', 'BUSINESS'] as const).map((k) => (
+                  <label key={k} className={`type-card${accountType === k ? ' on' : ''}`}>
+                    <input type="radio" name="accountType" value={k} checked={accountType === k} onChange={() => setAccountType(k)} />
+                    {k === 'PERSONAL' ? (
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
+                    ) : (
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 10h4a1 1 0 0 1 1 1v10M8 8h3M8 12h3M8 16h3M3 21h18" /></svg>
+                    )}
+                    <strong>{t(k === 'PERSONAL' ? 'auth.personal' : 'auth.business')}</strong>
+                    <span>{t(k === 'PERSONAL' ? 'auth.personalHint' : 'auth.businessHint')}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <TextField label={t('auth.fullName')} value={fullName} onChange={(e) => setFullName(e.target.value)} autoComplete="name" required error={fe.fullName} />
+            {accountType === 'BUSINESS' && (
+              <div className="reveal stack">
+                <TextField label={t('auth.businessName')} value={businessName} onChange={(e) => setBusinessName(e.target.value)} autoComplete="organization" required error={fe.businessName} />
+                <SelectField label={t('auth.businessType')} optional value={businessType} onChange={(e) => setBusinessType(e.target.value)}>
+                  <option value="">—</option>
+                  {BUSINESS_TYPES.map((b) => <option key={b} value={b}>{t(`biz.${b}`)}</option>)}
+                </SelectField>
+              </div>
+            )}
+            <div className="segmented seg-small" role="radiogroup" aria-label={`${t('auth.phone')} / ${t('auth.email')}`}>
+              <button type="button" role="radio" aria-checked={contactMode === 'phone'} className={contactMode === 'phone' ? 'on' : ''} onClick={() => { setContactMode('phone'); setContact(''); }}>{t('auth.usePhone')}</button>
+              <button type="button" role="radio" aria-checked={contactMode === 'email'} className={contactMode === 'email' ? 'on' : ''} onClick={() => { setContactMode('email'); setContact(''); }}>{t('auth.useEmail')}</button>
+            </div>
+            {contactMode === 'phone' ? (
+              <TextField key="phone" label={t('auth.phone')} hint="078 123 4567" type="tel" inputMode="tel" autoComplete="tel" value={contact} onChange={(e) => setContact(e.target.value)} required error={fe.phone} />
+            ) : (
+              <TextField key="email" label={t('auth.email')} type="email" inputMode="email" autoComplete="email" autoCapitalize="none" value={contact} onChange={(e) => setContact(e.target.value)} required error={fe.email} />
+            )}
+            <PasswordField label={t('auth.password')} hint={t('auth.passwordHint')} value={password} onChange={setPassword} autoComplete="new-password" error={fe.password} />
+            {accountType === 'PERSONAL' && (
+              <fieldset>
+                <legend className="label">{t('auth.gender')} <span className="optional">({t('common.optional')})</span></legend>
+                <div className="chips chips-wrap" role="radiogroup">
+                  {([['FEMALE', 'gender.FEMALE'], ['MALE', 'gender.MALE'], [null, 'gender.ANY']] as const).map(([g, key]) => (
+                    <button key={key} type="button" role="radio" aria-checked={gender === g} aria-pressed={gender === g} className="chip" onClick={() => setGender(g)}>{t(key)}</button>
+                  ))}
+                </div>
+                <p className="hint">{t('auth.genderHint')}</p>
+              </fieldset>
+            )}
+          </>
         )}
-        <TextField label={t('auth.password')} hint={t('auth.passwordHint')} type={show ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} error={fe.password} />
-        <Checkbox label={t('auth.showPassword')} checked={show} onChange={setShow} />
-        <Checkbox label={t('auth.keepMe')} hint={t('auth.keepMeHint')} checked={keep} onChange={setKeep} />
+        <Checkbox label={t('auth.keepMe')} hint={t('auth.keepMeHint')} checked={keep} onChange={setKeep} name="keepMeLoggedIn" />
         <ErrorBox error={error} />
-        <Button type="submit" busy={busy} className="btn-block">{t('auth.register')}</Button>
+        <Button type="submit" busy={busy} className="btn-block btn-lg">{mode === 'signin' ? t('auth.signIn') : t('auth.register')}</Button>
+        {mode === 'signin' ? (
+          <p className="center-links small">
+            <Link to="/forgot-password">{t('auth.forgot')}</Link>
+          </p>
+        ) : (
+          <p className="center-links small muted">{t('auth.perks')}</p>
+        )}
       </form>
-      <p className="center-links">
-        {t('auth.haveAccount')} <Link to="/login">{t('auth.signIn')}</Link>
-      </p>
-    </PlainLayout>
+    </div>
+  );
+}
+
+/** Animated header: a clothesline of garments swaying over rising bubbles. */
+function WelcomeHero() {
+  const { t } = useI18n();
+  return (
+    <div className="welcome-hero">
+      <div className="bubbles" aria-hidden="true">
+        {[
+          ['6%', 22, '13s', '0s', '12px'], ['18%', 12, '10s', '-3s', '-8px'], ['33%', 30, '16s', '-8s', '10px'], ['52%', 16, '12s', '-5s', '-14px'],
+          ['67%', 26, '14s', '-10s', '8px'], ['82%', 14, '11s', '-2s', '-10px'], ['92%', 34, '17s', '-12s', '14px'],
+        ].map(([l, s, d, delay, x], i) => (
+          <span key={i} style={{ left: l as string, width: s as number, height: s as number, ['--d' as string]: d, ['--delay' as string]: delay, ['--x' as string]: x }} />
+        ))}
+      </div>
+      <div className="welcome-top">
+        <span className="brand"><img src="/favicon.png" alt="" width={30} height={30} />Laundry Dash</span>
+        <LangSwitch />
+      </div>
+      <svg className="welcome-line" viewBox="0 0 360 120" aria-hidden="true" preserveAspectRatio="xMidYMin meet">
+        <path d="M-10 18 Q180 58 370 18" fill="none" stroke="rgba(255,255,255,.6)" strokeWidth="2" />
+        <g className="g"><rect x="62" y="24" width="6" height="12" rx="2" fill="#fff" /><path d="M46 34 L58 29 Q65 37 72 29 L84 34 L94 48 L86 54 L83 50 L83 92 L57 92 L57 50 L54 54 L46 48 Z" fill="#f5c443" /></g>
+        <g className="g"><rect x="139" y="34" width="6" height="12" rx="2" fill="#fff" /><path d="M130 44 L139 44 Q142 49 145 44 L154 44 L157 64 L172 112 L112 112 L127 64 Z" fill="#9ccbf3" /></g>
+        <g className="g"><rect x="214" y="36" width="6" height="12" rx="2" fill="#fff" /><path d="M199 44 L235 44 L238 106 L222 106 L217 66 L212 106 L196 106 Z" fill="#ffffff" /></g>
+        <g className="g"><rect x="289" y="26" width="6" height="12" rx="2" fill="#fff" /><path d="M272 34 L284 30 L292 52 L300 30 L312 34 L326 48 L320 98 L304 98 L292 56 L280 98 L264 98 L258 48 Z" fill="#10a08f" /></g>
+      </svg>
+      <div className="welcome-copy">
+        <h1>{t('auth.welcomeTitle')}</h1>
+        <p>{t('auth.welcomeBody')}</p>
+      </div>
+    </div>
+  );
+}
+
+export function AuthPage({ initialMode }: { initialMode: 'signin' | 'register' }) {
+  const { t } = useI18n();
+  const { setUser } = useAuth();
+  const nav = useNavigate();
+  const loc = useLocation() as { state?: { from?: string } };
+  return (
+    <div className="welcome">
+      <OfflineBanner />
+      <WelcomeHero />
+      <main className="welcome-card" id="main">
+        <AuthForm
+          initialMode={initialMode}
+          onAuthed={(u) => {
+            setUser(u);
+            nav(loc.state?.from && u.role === 'CUSTOMER' ? loc.state.from : homeFor(u), { replace: true });
+          }}
+        />
+        <Link to="/" className="btn btn-quiet btn-block guest-link">
+          {t('auth.continueGuest')}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+        </Link>
+      </main>
+    </div>
+  );
+}
+export const LoginPage = () => <AuthPage initialMode="signin" />;
+export const RegisterPage = () => <AuthPage initialMode="register" />;
+
+/** Sign-up sheet shown to guests at the moment an account is needed (confirm booking, save to wardrobe…). */
+export function AuthSheet({ title, body, mode = 'register', onClose, onAuthed }: { title: string; body?: string; mode?: 'signin' | 'register'; onClose: () => void; onAuthed: (u: User) => void }) {
+  const { setUser } = useAuth();
+  return (
+    <Sheet title={title} onClose={onClose}>
+      {body && <p className="muted">{body}</p>}
+      <AuthForm compact initialMode={mode} onAuthed={(u) => { setUser(u); onAuthed(u); }} />
+    </Sheet>
+  );
+}
+
+/** Friendly explainer shown instead of a members-only screen when browsing as a guest. */
+export function GuestGate({ title, body, art, onAuthed }: { title: string; body: string; art?: ReactNode; onAuthed?: (u: User) => void }) {
+  const { t } = useI18n();
+  const [sheet, setSheet] = useState<null | 'register' | 'signin'>(null);
+  return (
+    <div className="gate">
+      <div className="gate-art" aria-hidden="true">
+        {art ?? (
+          <svg width="120" height="96" viewBox="0 0 120 96"><path d="M6 16 Q60 32 114 16" fill="none" stroke="#13203b" strokeWidth="2" /><path d="M26 24 L36 20 Q42 26 48 20 L58 24 L66 36 L58 42 L56 38 L56 80 L28 80 L28 38 L26 42 L18 36 Z" fill="#9ccbf3" stroke="#1f5fa8" strokeWidth="2" strokeLinejoin="round" /><path d="M76 26 L82 26 Q86 31 90 26 L96 26 L98 42 L110 82 L68 82 L80 42 Z" fill="#f5c443" stroke="#13203b" strokeWidth="2" strokeLinejoin="round" /></svg>
+        )}
+      </div>
+      <h1>{title}</h1>
+      <p className="lede">{body}</p>
+      <Button className="btn-block btn-lg" onClick={() => setSheet('register')}>{t('gate.create')}</Button>
+      <Button variant="secondary" className="btn-block" onClick={() => setSheet('signin')}>{t('gate.signIn')}</Button>
+      {sheet && <AuthSheet title={title} mode={sheet} onClose={() => setSheet(null)} onAuthed={(u) => { setSheet(null); onAuthed?.(u); }} />}
+    </div>
   );
 }
 
@@ -208,7 +338,7 @@ export function ResetPasswordPage() {
         <Notice tone="warn">{t('auth.resetMissingToken')} <Link to="/forgot-password">{t('auth.resetSend')}</Link></Notice>
       ) : (
         <form onSubmit={submit} className="stack" noValidate>
-          <TextField label={t('auth.newPassword')} hint={t('auth.passwordHint')} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
+          <PasswordField label={t('auth.newPassword')} hint={t('auth.passwordHint')} value={password} onChange={setPassword} autoComplete="new-password" />
           <ErrorBox error={error} />
           <Button type="submit" busy={busy} className="btn-block">{t('auth.setPassword')}</Button>
         </form>

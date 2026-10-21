@@ -75,6 +75,10 @@ components:
         phone: { type: [string, 'null'], description: E.164, e.g. +250788123456 }
         role: { type: string, enum: [CUSTOMER, RIDER, STAFF, ADMIN] }
         preferredLanguage: { type: string, enum: [en, rw] }
+        accountType: { type: string, enum: [PERSONAL, BUSINESS] }
+        gender: { type: [string, 'null'], enum: [FEMALE, MALE, null] }
+        businessName: { type: [string, 'null'] }
+        businessType: { type: [string, 'null'], enum: [APARTMENTS, HOTEL, CLOTHES_RENTAL, RESTAURANT, SALON_SPA, OTHER, null] }
         isDemo: { type: boolean }
         createdAt: { type: string, format: date-time }
     Address:
@@ -118,6 +122,13 @@ components:
         hasPhoto: { type: boolean }
         photoUrl: { type: [string, 'null'], description: Authenticated URL; owner only }
         timesCleaned: { type: integer, description: Delivered orders that included this item }
+        inCleaning: { type: boolean, description: Part of an order that is not finished yet }
+        acquiredOn: { type: [string, 'null'], format: date, description: Purchase date (date added is used when empty) }
+        location: { type: string, description: 'Business accounts: property/unit, e.g. Apartment 2B' }
+        depreciation:
+          type: object
+          description: Straight-line estimate over the category lifespan; replaceSuggested when 20% or less remains
+          properties: { ageMonths: { type: integer }, lifespanMonths: { type: integer }, remainingShare: { type: number }, currentValue: { type: [integer, 'null'] }, totalOriginal: { type: [integer, 'null'] }, totalCurrent: { type: [integer, 'null'] }, replaceSuggested: { type: boolean }, monthsLeft: { type: integer } }
         lastCleanedAt: { type: [string, 'null'], format: date-time }
     WardrobeInput:
       type: object
@@ -130,6 +141,8 @@ components:
         quantity: { type: integer, minimum: 1, maximum: 100 }
         purchaseValue: { type: [integer, 'null'], minimum: 0 }
         careNotes: { type: string }
+        acquiredOn: { type: [string, 'null'], format: date }
+        location: { type: string, maxLength: 60 }
     Service:
       type: object
       properties:
@@ -431,7 +444,9 @@ paths:
         - { name: kind, in: query, schema: { type: string, enum: [CLOTHES, SHOES] } }
         - { name: categoryId, in: query, schema: { type: string, format: uuid } }
         - { name: q, in: query, schema: { type: string }, description: Search name or colour }
-        - { name: sort, in: query, schema: { type: string, enum: [recent, name, value], default: recent } }
+        - { name: sort, in: query, schema: { type: string, enum: [recent, name, value, worn], default: recent } }
+        - { name: location, in: query, schema: { type: string } }
+        - { name: replace, in: query, schema: { type: string, enum: ['true'] }, description: Only items suggested for replacement }
       responses: { '200': { description: Paged WardrobeItem plus stats } }
     post:
       tags: [Me]
@@ -486,7 +501,8 @@ paths:
   /bookings/quote:
     post:
       tags: [Bookings]
-      summary: Price estimate including pickup/delivery fees and subscription coverage. No side effects.
+      summary: Price estimate including pickup/delivery fees and subscription coverage. No side effects. Guests may call it with an inline address (no saved addresses/wardrobe items).
+      security: [{}, { session: [] }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BookingInput' } } } }
       responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { pricing: { $ref: '#/components/schemas/Pricing' } } } } } } }
   /bookings:
@@ -712,6 +728,13 @@ paths:
   /admin/subscription-plans/{id}:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     put: { tags: [Admin], summary: "ADMIN only. Update plan (existing subscriptions keep purchased terms)", responses: { '200': { description: OK } } }
+  /admin/settings/contact:
+    get: { tags: [Admin], summary: "Business WhatsApp and call numbers shown to customers (source: settings or environment default)", responses: { '200': { description: OK } } }
+    put:
+      tags: [Admin]
+      summary: "ADMIN only. Set the WhatsApp and call numbers (any format; stored as E.164 phone and digits-only WhatsApp). Audited."
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [phone, whatsapp], properties: { phone: { type: string }, whatsapp: { type: string } } } } } }
+      responses: { '200': { description: OK }, '400': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } }
   /admin/pickup-slots:
     get: { tags: [Admin], summary: "Upcoming slots with bookings", parameters: [{ name: days, in: query, schema: { type: integer } }], responses: { '200': { description: OK } } }
   /admin/pickup-slots/generate:

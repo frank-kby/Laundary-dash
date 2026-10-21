@@ -15,7 +15,7 @@ describe('virtual wardrobe', () => {
     await cu.c.post('/api/v1/me/wardrobe', { categoryId: cu.cat.SNEAKERS.id, name: 'Running shoes', purchaseValue: 40000 });
     await cu.c.post('/api/v1/me/wardrobe', { categoryId: cu.cat.DRESS.id, name: 'Blue dress' }); // value optional
     const list = await cu.c.get('/api/v1/me/wardrobe');
-    expect(list.body.stats).toEqual({ items: 3, pieces: 4, totalValue: 70000, clothes: 2, shoes: 1, withPhotos: 0 });
+    expect(list.body.stats).toMatchObject({ items: 3, pieces: 4, totalValue: 70000, currentValue: 70000, clothes: 2, shoes: 1, withPhotos: 0, toReplace: 0 });
   });
 
   it('validates colour and value', async () => {

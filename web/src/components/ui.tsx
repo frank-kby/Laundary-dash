@@ -134,8 +134,16 @@ const SILHOUETTES: Record<string, string> = {
   shoe: 'M8 52 Q10 40 22 42 L32 50 Q52 54 72 58 Q92 62 92 76 L92 82 L8 82 Z',
   boot: 'M24 10 L52 10 L54 54 Q84 58 90 72 L90 84 L20 84 Z',
   sandal: 'M10 70 Q12 58 30 60 L84 62 Q94 64 92 76 L10 78 Z M34 60 L46 42 L58 60',
+  linen: 'M14 62 L86 62 Q92 62 92 68 L92 80 Q92 86 86 86 L14 86 Q8 86 8 80 L8 68 Q8 62 14 62 Z M18 38 L82 38 Q88 38 88 44 L88 56 Q88 62 82 62 L18 62 Q12 62 12 56 L12 44 Q12 38 18 38 Z M24 16 L76 16 Q82 16 82 22 L82 32 Q82 38 76 38 L24 38 Q18 38 18 32 L18 22 Q18 16 24 16 Z',
+  curtain: 'M10 10 L90 10 L90 16 L74 16 Q66 50 76 92 L54 92 Q60 50 52 16 L48 16 Q40 50 46 92 L24 92 Q34 50 26 16 L10 16 Z',
 };
 export function silhouetteFor(code: string, kind: string) {
+  if (['BED_SHEET', 'DUVET_COVER', 'PILLOWCASE', 'TOWEL', 'TABLE_LINEN'].includes(code)) return 'linen';
+  if (code === 'CURTAIN') return 'curtain';
+  if (code === 'BATHROBE') return 'jacket';
+  if (code === 'SKIRT') return 'dress';
+  if (code === 'MUSHANANA') return 'dress';
+  if (code === 'HEELS') return 'shoe';
   if (kind === 'SHOES') return code === 'BOOTS' ? 'boot' : code === 'SANDALS' ? 'sandal' : 'shoe';
   if (code === 'TROUSERS') return 'trousers';
   if (code === 'DRESS') return 'dress';
@@ -150,6 +158,7 @@ export function Silhouette({ shape, hex }: { shape: string; hex: string | null }
       <path d={SILHOUETTES[shape] ?? SILHOUETTES.shirt} fill={fill} stroke={stroke} strokeWidth="2.5" strokeLinejoin="round" />
       {shape === 'jacket' && <path d="M43 8 L38 30 L50 56 L62 30 L57 8 M50 56 L50 92" fill="none" stroke={stroke} strokeWidth="2.5" strokeLinejoin="round" />}
       {shape === 'shirt' && <path d="M42 9 Q50 17 58 9" fill="none" stroke={stroke} strokeWidth="2.5" />}
+      {shape === 'linen' && <path d="M8 74 L92 74 M12 50 L88 50 M18 27 L82 27" fill="none" stroke={stroke} strokeWidth="2" strokeDasharray="4 4" />}
     </svg>
   );
 }

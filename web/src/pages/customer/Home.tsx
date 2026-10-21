@@ -3,6 +3,7 @@ import { useAuth } from '../../auth';
 import { useI18n } from '../../i18n';
 import type { OrderSummary, Paged } from '../../types';
 import { Clothesline, ErrorBox, Loading, useLoad } from '../../components/ui';
+import { useCatalog, useLocalName } from '../../catalog';
 
 export function SupportLinks() {
   const { t } = useI18n();
@@ -67,7 +68,67 @@ function BookHero() {
   );
 }
 
+function GuestHome() {
+  const { t, money } = useI18n();
+  const { catalog } = useCatalog();
+  const localName = useLocalName();
+  return (
+    <div className="stack-lg">
+      <section className="greeting">
+        <h1>{t('home.guestGreeting')}</h1>
+        <p>{t('home.guestSubtitle')}</p>
+      </section>
+      <BookHero />
+      <section aria-labelledby="how-h">
+        <h2 id="how-h">{t('home.howTitle')}</h2>
+        <ol className="how">
+          {(['home.how1', 'home.how2', 'home.how3'] as const).map((k, i) => (
+            <li key={k}><span className="how-n" aria-hidden="true">{i + 1}</span><span>{t(k)}</span></li>
+          ))}
+        </ol>
+      </section>
+      <section aria-labelledby="prices-h">
+        <h2 id="prices-h">{t('home.prices')}</h2>
+        {!catalog ? <Loading rows={3} /> : (
+          <ul className="list price-list">
+            {catalog.services.map((s) => {
+              const lowest = Math.min(s.unitPrice, ...s.categoryPrices.map((c) => c.unitPrice));
+              return (
+                <li key={s.id} className="list-row static">
+                  <span><strong>{localName(s)}</strong><span className="block small muted">{s.kind === 'SHOES' ? t('wardrobe.shoes') : t('wardrobe.clothes')}</span></span>
+                  <span className="price-tag">{t('home.fromPrice', { price: money(lowest) })}{s.pricingUnit === 'KG' ? '/kg' : ''}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+      <section className="shortcuts">
+        <Link to="/wardrobe" className="shortcut shortcut-aqua">
+          <span className="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5a2 2 0 1 1 2 2c-1 0-2 .7-2 2l9 6.5a1 1 0 0 1-.6 1.8H3.6a1 1 0 0 1-.6-1.8L12 9" /></svg></span>
+          <strong>{t('home.wardrobe')}</strong>
+          <span>{t('home.wardrobeHint')}</span>
+        </Link>
+        <Link to="/subscription" className="shortcut shortcut-lilac">
+          <span className="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z" /></svg></span>
+          <strong>{t('home.subscription')}</strong>
+          <span>{t('home.subscriptionHint')}</span>
+        </Link>
+      </section>
+      <section aria-labelledby="help-h">
+        <h2 id="help-h">{t('home.help')}</h2>
+        <SupportLinks />
+      </section>
+    </div>
+  );
+}
+
 export function HomePage() {
+  const { user } = useAuth();
+  return user ? <MemberHome /> : <GuestHome />;
+}
+
+function MemberHome() {
   const { t, slotLabel, money } = useI18n();
   const { user } = useAuth();
   const active = useLoad<Paged<OrderSummary>>('/bookings?scope=active&pageSize=3');

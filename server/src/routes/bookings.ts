@@ -4,7 +4,7 @@ import type pg from 'pg';
 import { z } from 'zod';
 import { audit } from '../audit.js';
 import { one, pool, q, tx, type Db } from '../db.js';
-import { badRequest, conflict, notFound, unprocessable } from '../errors.js';
+import { AppError, badRequest, conflict, notFound, unprocessable } from '../errors.js';
 import { idParam, idempotent, paged, pagination } from '../http.js';
 import { normalizePhone } from '../identifiers.js';
 import { CUSTOMER_CANCELLABLE } from '../domain/orderStatus.js';
@@ -70,17 +70,17 @@ const addressSnapshot = (a: any) => ({
  * Builds everything about a booking from server-side data only: item snapshots, prices, fees, subscription
  * coverage. Shared by /quote and /bookings so the confirmed price equals the quoted price.
  */
-async function buildDraft(db: Db, userId: string, b: Omit<BookingInput, 'pickupSlotId'>, persist: pg.PoolClient | null) {
+async function buildDraft(db: Db, userId: string | null, b: Omit<BookingInput, 'pickupSlotId'>, persist: pg.PoolClient | null) {
   // Addresses
   let pickup: any;
-  if (b.pickupAddressId) pickup = await loadAddress(db, userId, b.pickupAddressId);
+  if (b.pickupAddressId) pickup = await loadAddress(db, userId!, b.pickupAddressId);
   else if (b.pickupAddress) {
     const area = await one(db, 'SELECT * FROM service_areas WHERE id = $1 AND active', [b.pickupAddress.serviceAreaId]);
     if (!area) throw badRequest('Please choose an area we serve.');
     const contact = b.pickupAddress.contactPhone ? normalizePhone(b.pickupAddress.contactPhone) : null;
     if (b.pickupAddress.contactPhone && !contact) throw badRequest('Contact phone is not valid.');
     pickup = { ...b.pickupAddress, id: null, service_area_id: area.id, area_name: area.name, pickup_fee: area.pickup_fee, delivery_fee: area.delivery_fee, contact_phone: contact, latitude: null, longitude: null };
-    if (persist) {
+    if (persist && userId) {
       const saved = await one(persist, `INSERT INTO addresses (user_id, label, service_area_id, street, landmark, details, contact_phone) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [
         userId, pickup.label, area.id, pickup.street, pickup.landmark, pickup.details, contact,
       ]);
@@ -89,7 +89,7 @@ async function buildDraft(db: Db, userId: string, b: Omit<BookingInput, 'pickupS
   } else throw badRequest('Choose a pickup address.');
 
   let delivery: any = null;
-  if (b.deliveryPreference === 'DELIVER_TO_ADDRESS') delivery = b.deliveryAddressId ? await loadAddress(db, userId, b.deliveryAddressId) : pickup;
+  if (b.deliveryPreference === 'DELIVER_TO_ADDRESS') delivery = b.deliveryAddressId ? await loadAddress(db, userId!, b.deliveryAddressId) : pickup;
 
   // Items
   const serviceIds = [...new Set(b.items.map((i) => i.serviceId))];
@@ -129,7 +129,7 @@ async function buildDraft(db: Db, userId: string, b: Omit<BookingInput, 'pickupS
     lines.push({ ref, label: snap.name, serviceId: svc.id, serviceName: svc.name_en, pricingUnit: svc.pricing_unit, unitPrice, minCharge: svc.min_charge, quantity: qty });
   }
 
-  const subscription = await getSubscriptionTerms(db, { userId });
+  const subscription = userId ? await getSubscriptionTerms(db, { userId }) : null;
   const pricing = priceOrder({
     lines,
     pickupFee: pickup.pickup_fee,
@@ -163,17 +163,24 @@ async function reserveSlot(c: pg.PoolClient, slotId: string) {
 }
 
 export const bookingsRouter = Router();
-bookingsRouter.use(requireAuth);
-
+/**
+ * Price estimate. Also available to guests (not signed in) so they can see the price before creating an account;
+ * guests must describe items and the address inline, and no subscription applies. Nothing is saved.
+ */
 bookingsRouter.post('/quote', async (req, res) => {
   const b = quoteSchema.parse(req.body);
-  const d = await buildDraft(pool, req.user!.id, b, null);
+  if (!req.user && (b.pickupAddressId || b.deliveryAddressId || b.items.some((i) => i.wardrobeItemId))) {
+    throw new AppError(401, 'UNAUTHENTICATED', 'Please sign in to use saved addresses or wardrobe items.');
+  }
+  const d = await buildDraft(pool, req.user?.id ?? null, b, null);
   res.json({
     pricing: d.pricing,
     subscriptionApplied: !!d.pricing.subscriptionId,
     note: 'Estimate. Final price is confirmed after we count/weigh your items; any increase needs your approval first.',
   });
 });
+
+bookingsRouter.use(requireAuth);
 
 bookingsRouter.post('/', async (req, res) => {
   await idempotent(req, res, 'POST /bookings', async () => {

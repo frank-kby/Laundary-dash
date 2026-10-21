@@ -1,0 +1,55 @@
+[WebServer] NOTICE:  drop cascades to 32 other objects
+[WebServer] DETAIL:  drop cascades to table schema_migrations
+[WebServer] drop cascades to extension pgcrypto
+[WebServer] drop cascades to table users
+[WebServer] drop cascades to table sessions
+[WebServer] drop cascades to table password_reset_tokens
+[WebServer] drop cascades to table service_areas
+[WebServer] drop cascades to table garment_categories
+[WebServer] drop cascades to table services
+[WebServer] drop cascades to table service_category_prices
+[WebServer] drop cascades to table pickup_slots
+[WebServer] drop cascades to table addresses
+[WebServer] drop cascades to table wardrobe_items
+[WebServer] drop cascades to table subscription_plans
+[WebServer] drop cascades to table subscription_plan_services
+[WebServer] drop cascades to table subscriptions
+[WebServer] drop cascades to table orders
+[WebServer] drop cascades to table bookings
+[WebServer] drop cascades to table order_items
+[WebServer] drop cascades to table order_adjustments
+[WebServer] drop cascades to table order_events
+[WebServer] drop cascades to table price_revisions
+[WebServer] drop cascades to table order_issues
+[WebServer] drop cascades to table rider_tasks
+[WebServer] drop cascades to table subscription_usage
+[WebServer] drop cascades to table payments
+[WebServer] drop cascades to table payment_events
+[WebServer] drop cascades to table refunds
+[WebServer] drop cascades to table notifications
+[WebServer] drop cascades to table audit_logs
+[WebServer] drop cascades to table idempotency_records
+[WebServer] drop cascades to table stored_photos
+[WebServer] drop cascades to table app_settings
+
+Running 17 tests using 1 worker
+
+  ✓   1 [mobile-android] › tests/guest-business.spec.ts:3:5 › a guest browses, builds a booking, and signs up only when confirming (4.8s)
+  ✓   2 [mobile-android] › tests/guest-business.spec.ts:42:5 › a business account tracks linens per property with depreciation (4.9s)
+  ✓   3 [mobile-android] › tests/guest-business.spec.ts:75:5 › a personal account sees clothing types for the chosen gender (3.0s)
+  ✓   4 [mobile-android] › tests/guest-business.spec.ts:91:5 › an admin changes the WhatsApp and phone numbers customers see (3.6s)
+  ✓   5 [mobile-android] › tests/journey.spec.ts:21:5 › customer books a pickup and follows it through to delivery and payment (20.3s)
+  ✓   6 [mobile-android] › tests/journey.spec.ts:130:5 › price rejection keeps the original price (6.6s)
+  ✓   7 [mobile-android] › tests/layout.spec.ts:17:5 › welcome screens fit small phones and switch to Kinyarwanda (2.8s)
+  ✓   8 [mobile-android] › tests/layout.spec.ts:32:5 › guests can open the app without an account (2.1s)
+  ✓   9 [mobile-android] › tests/layout.spec.ts:43:5 › customer screens fit small phones and load quickly (7.9s)
+  ✓  10 [mobile-android] › tests/layout.spec.ts:64:5 › offline is shown honestly and nothing is reported as sent (4.9s)
+  ✓  11 [mobile-android] › tests/layout.spec.ts:82:5 › API responses are never cached and security headers are present (60ms)
+  ✓  12 [mobile-android] › tests/wardrobe.spec.ts:4:5 › customer builds a virtual wardrobe with photo, colour and value, then books cleaning from it (5.1s)
+  ✓  13 [mobile-small] › tests/layout.spec.ts:17:5 › welcome screens fit small phones and switch to Kinyarwanda (2.3s)
+  ✓  14 [mobile-small] › tests/layout.spec.ts:32:5 › guests can open the app without an account (1.4s)
+  ✓  15 [mobile-small] › tests/layout.spec.ts:43:5 › customer screens fit small phones and load quickly (7.0s)
+  ✓  16 [mobile-small] › tests/layout.spec.ts:64:5 › offline is shown honestly and nothing is reported as sent (4.0s)
+  ✓  17 [mobile-small] › tests/layout.spec.ts:82:5 › API responses are never cached and security headers are present (94ms)
+
+  17 passed (1.5m)

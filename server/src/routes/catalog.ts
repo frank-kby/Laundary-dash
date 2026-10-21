@@ -5,6 +5,7 @@ import { pool, q } from '../db.js';
 import { email } from '../providers/email.js';
 import { paymentProvider } from '../providers/payments.js';
 import { storage } from '../providers/storage.js';
+import { getContact } from '../services/settings.js';
 
 export const SLOT_CUTOFF_MINUTES = 60;
 
@@ -23,7 +24,7 @@ export const serviceDto = (s: any, overrides: any[] = []) => ({
   active: s.active,
   categoryPrices: overrides.filter((o) => o.service_id === s.id).map((o) => ({ categoryId: o.category_id, unitPrice: o.unit_price })),
 });
-export const categoryDto = (c: any) => ({ id: c.id, code: c.code, kind: c.kind, nameEn: c.name_en, nameRw: c.name_rw, active: c.active });
+export const categoryDto = (c: any) => ({ id: c.id, code: c.code, kind: c.kind, nameEn: c.name_en, nameRw: c.name_rw, gender: c.gender, segment: c.segment, lifespanMonths: c.lifespan_months, active: c.active });
 export const areaDto = (a: any) => ({
   id: a.id,
   code: a.code,
@@ -38,14 +39,15 @@ export const areaDto = (a: any) => ({
 export const catalogRouter = Router();
 
 /** Public feature flags so the UI can label unconfigured integrations honestly. */
-catalogRouter.get('/config', (_req, res) => {
+catalogRouter.get('/config', async (_req, res) => {
+  const contact = await getContact(pool);
   res.json({
     features: {
       emailPasswordReset: email.configured,
       photos: storage.configured,
       mobileMoney: paymentProvider ? { provider: paymentProvider.name, testMode: paymentProvider.mode === 'test' } : null,
     },
-    support: { phone: config.SUPPORT_PHONE, whatsapp: config.SUPPORT_WHATSAPP },
+    support: { phone: contact.phone, whatsapp: contact.whatsapp },
     timezone: config.BUSINESS_TIMEZONE,
     currency: 'RWF',
   });

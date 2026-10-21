@@ -10,3 +10,4 @@ backups/
 e2e/test-results/
 e2e/shots.mjs
 web/dist/
+!docs/test-results/

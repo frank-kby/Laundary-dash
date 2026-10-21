@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { patch, post, put } from '../../api';
 import { useAuth } from '../../auth';
@@ -6,7 +6,7 @@ import { loadCatalog } from '../../catalog';
 import { useI18n } from '../../i18n';
 import type { Area, Category, Paged, Payment, Plan, Service, User } from '../../types';
 import { Brand, LangSwitch, OfflineBanner } from '../../components/Layout';
-import { Badge, Button, Checkbox, ErrorBox, Loading, Notice, payTone, SelectField, Sheet, TextArea, TextField, useLoad } from '../../components/ui';
+import { Badge, Button, Checkbox, ErrorBox, Loading, Notice, payTone, SelectField, Sheet, TextArea, TextField, useLoad, useToast } from '../../components/ui';
 
 export function StaffLayout() {
   const { t } = useI18n();
@@ -64,17 +64,18 @@ function useSave() {
 export function SettingsPage() {
   const { t } = useI18n();
   const { user } = useAuth();
-  const [tab, setTab] = useState<'services' | 'areas' | 'categories' | 'plans' | 'slots'>('services');
+  const [tab, setTab] = useState<'contact' | 'services' | 'areas' | 'categories' | 'plans' | 'slots'>('contact');
   const isAdmin = user?.role === 'ADMIN';
   return (
     <div className="stack">
       <h1>{t('staff.settings')}</h1>
       <div className="segmented wrap">
-        {(['services', 'areas', 'categories', 'plans', 'slots'] as const).map((k) => (
+        {(['contact', 'services', 'areas', 'categories', 'plans', 'slots'] as const).map((k) => (
           <button key={k} className={tab === k ? 'on' : ''} aria-pressed={tab === k} onClick={() => setTab(k)}>{t(`staff.${k}` as any)}</button>
         ))}
       </div>
       {!isAdmin && tab !== 'slots' && <Notice>{t('staff.adminOnly')}</Notice>}
+      {tab === 'contact' && <ContactEditor admin={isAdmin} />}
       {tab === 'services' && <ServicesEditor admin={isAdmin} />}
       {tab === 'areas' && <AreasEditor admin={isAdmin} />}
       {tab === 'categories' && <CategoriesEditor admin={isAdmin} />}
@@ -94,6 +95,36 @@ function EditSheet({ title, onClose, onSubmit, s, children }: { title: string; o
         <div className="actions"><Button type="button" variant="quiet" onClick={onClose}>{t('common.cancel')}</Button><Button type="submit" busy={s.busy}>{t('common.save')}</Button></div>
       </form>
     </Sheet>
+  );
+}
+
+/** WhatsApp and phone numbers customers use to reach the business (Home, sign-in help, order pages). */
+function ContactEditor({ admin }: { admin: boolean }) {
+  const cur = useLoad<{ contact: { phone: string; whatsapp: string; source: 'settings' | 'environment' } }>('/admin/settings/contact');
+  const [f, setF] = useState<{ phone: string; whatsapp: string } | null>(null);
+  const s = useSave();
+  const toast = useToast();
+  useEffect(() => {
+    if (cur.data && !f) setF({ phone: cur.data.contact.phone, whatsapp: '+' + cur.data.contact.whatsapp });
+  }, [cur.data, f]);
+  if (!cur.data || !f) return <Loading />;
+  const c = cur.data.contact;
+  return (
+    <form className="panel stack contact-panel" onSubmit={async (e) => { e.preventDefault(); if (await s.run(() => put('/admin/settings/contact', f))) { toast('Contact numbers saved'); cur.reload(); setF(null); loadCatalog(true); } }}>
+      <h2>Customer contact numbers</h2>
+      <p className="hint">Shown to customers on the Home screen, on order pages and on the sign-in help page. Changes apply immediately.</p>
+      <div className="row-2">
+        <TextField label="WhatsApp number" hint="The number customers chat with, e.g. 078 123 4567" type="tel" inputMode="tel" value={f.whatsapp} onChange={(e) => setF({ ...f, whatsapp: e.target.value })} disabled={!admin} required />
+        <TextField label="Phone number for calls" hint="The number customers call, e.g. 078 123 4567" type="tel" inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} disabled={!admin} required />
+      </div>
+      <div className="actions">
+        <a className="btn btn-whatsapp" href={`https://wa.me/${c.whatsapp}`} target="_blank" rel="noopener noreferrer">Test WhatsApp link</a>
+        <a className="btn btn-secondary" href={`tel:${c.phone}`}>Test call link</a>
+      </div>
+      {c.source === 'environment' && <Notice tone="warn">These are the default numbers from the server setup. Save here to manage them from the app.</Notice>}
+      <ErrorBox error={s.error} />
+      {admin && <Button type="submit" busy={s.busy}>Save contact numbers</Button>}
+    </form>
   );
 }
 
@@ -201,13 +232,13 @@ function CategoriesEditor({ admin }: { admin: boolean }) {
     <>
       <div className="table-wrap">
         <table className="data">
-          <thead><tr><th>Code</th><th>Kind</th><th>English</th><th>Kinyarwanda</th><th>Active</th><th /></tr></thead>
+          <thead><tr><th>Code</th><th>Kind</th><th>English</th><th>Kinyarwanda</th><th>For</th><th>Customers</th><th className="num">Typical life</th><th>Active</th><th /></tr></thead>
           <tbody>{list.data?.items.map((c) => (
-            <tr key={c.id}><td>{c.code}</td><td>{c.kind}</td><td>{c.nameEn}</td><td>{c.nameRw}</td><td>{c.active ? '✓' : '—'}</td><td>{admin && <Button variant="quiet" onClick={() => setEdit({ ...c })}>Edit</Button>}</td></tr>
+            <tr key={c.id}><td>{c.code}</td><td>{c.kind}</td><td>{c.nameEn}</td><td>{c.nameRw}</td><td>{c.gender === 'ANY' ? 'Everyone' : c.gender === 'FEMALE' ? 'Women' : 'Men'}</td><td>{c.segment === 'BUSINESS' ? 'Business' : 'Personal'}</td><td className="num">{c.lifespanMonths} mo</td><td>{c.active ? '✓' : '—'}</td><td>{admin && <Button variant="quiet" onClick={() => setEdit({ ...c })}>Edit</Button>}</td></tr>
           ))}</tbody>
         </table>
       </div>
-      {admin && <Button variant="secondary" onClick={() => setEdit({ code: '', kind: 'CLOTHES', nameEn: '', nameRw: '', active: true })}>Add garment type</Button>}
+      {admin && <Button variant="secondary" onClick={() => setEdit({ code: '', kind: 'CLOTHES', nameEn: '', nameRw: '', gender: 'ANY', segment: 'PERSONAL', lifespanMonths: 36, active: true })}>Add garment type</Button>}
       {edit && (
         <EditSheet title={edit.id ? `Edit ${edit.code}` : 'New garment type'} s={s} onClose={() => { setEdit(null); list.reload(); }}
           onSubmit={() => { const { id, ...b } = edit; return id ? put(`/admin/categories/${id}`, b) : post('/admin/categories', b); }}>
@@ -216,7 +247,11 @@ function CategoriesEditor({ admin }: { admin: boolean }) {
             <SelectField label="Kind" value={edit.kind} onChange={(e) => setEdit({ ...edit, kind: e.target.value })}><option>CLOTHES</option><option>SHOES</option></SelectField>
             <TextField label="English" value={edit.nameEn} onChange={(e) => setEdit({ ...edit, nameEn: e.target.value })} required />
             <TextField label="Kinyarwanda" value={edit.nameRw} onChange={(e) => setEdit({ ...edit, nameRw: e.target.value })} required />
+            <SelectField label="Show to" value={edit.gender} onChange={(e) => setEdit({ ...edit, gender: e.target.value })}><option value="ANY">Everyone</option><option value="FEMALE">Women</option><option value="MALE">Men</option></SelectField>
+            <SelectField label="Customer type" value={edit.segment} onChange={(e) => setEdit({ ...edit, segment: e.target.value })}><option value="PERSONAL">Personal</option><option value="BUSINESS">Business (linens, uniforms…)</option></SelectField>
+            <TextField label="Typical life (months)" hint="Used to estimate depreciation" type="number" min={1} max={240} value={edit.lifespanMonths} onChange={(e) => setEdit({ ...edit, lifespanMonths: Number(e.target.value) })} />
           </div>
+          <p className="hint">Personal customers see types for everyone plus their chosen gender. Business customers see business types first, then all others.</p>
           <Checkbox label="Active" checked={edit.active} onChange={(v) => setEdit({ ...edit, active: v })} />
         </EditSheet>
       )}

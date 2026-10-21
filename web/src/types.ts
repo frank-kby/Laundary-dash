@@ -1,11 +1,16 @@
 export type Role = 'CUSTOMER' | 'RIDER' | 'STAFF' | 'ADMIN';
-export interface User { id: string; fullName: string; email: string | null; phone: string | null; role: Role; preferredLanguage: 'en' | 'rw'; isDemo: boolean }
-export interface Category { id: string; code: string; kind: 'CLOTHES' | 'SHOES'; nameEn: string; nameRw: string; active?: boolean }
+export type AccountType = 'PERSONAL' | 'BUSINESS';
+export type Gender = 'FEMALE' | 'MALE';
+export const BUSINESS_TYPES = ['APARTMENTS', 'HOTEL', 'CLOTHES_RENTAL', 'RESTAURANT', 'SALON_SPA', 'OTHER'] as const;
+export type BusinessType = (typeof BUSINESS_TYPES)[number];
+export interface User { id: string; fullName: string; email: string | null; phone: string | null; role: Role; preferredLanguage: 'en' | 'rw'; accountType: AccountType; gender: Gender | null; businessName: string | null; businessType: BusinessType | null; isDemo: boolean }
+export interface Category { id: string; code: string; kind: 'CLOTHES' | 'SHOES'; nameEn: string; nameRw: string; gender: 'ANY' | Gender; segment: 'PERSONAL' | 'BUSINESS'; lifespanMonths: number; active?: boolean }
 export interface Service { id: string; code: string; nameEn: string; nameRw: string; descriptionEn: string; descriptionRw: string; kind: 'CLOTHES' | 'SHOES'; pricingUnit: 'ITEM' | 'KG'; unitPrice: number; minCharge: number; turnaroundHours: number; active: boolean; categoryPrices: { categoryId: string; unitPrice: number }[] }
 export interface Area { id: string; code: string; name: string; district: string; landmarks: string[]; pickupFee: number; deliveryFee: number; active: boolean }
 export interface Address { id: string; label: string; serviceAreaId: string; serviceAreaName: string; street: string; landmark: string; details: string; contactPhone: string | null }
-export interface WardrobeItem { id: string; kind: 'CLOTHES' | 'SHOES'; categoryId: string; categoryCode: string; name: string; color: string; colorHex: string | null; quantity: number; purchaseValue: number | null; careNotes: string; hasPhoto: boolean; photoUrl: string | null; timesCleaned: number; lastCleanedAt: string | null; createdAt: string }
-export interface WardrobeStats { items: number; pieces: number; totalValue: number; clothes: number; shoes: number; withPhotos: number }
+export interface WardrobeItem { id: string; kind: 'CLOTHES' | 'SHOES'; categoryId: string; categoryCode: string; name: string; color: string; colorHex: string | null; quantity: number; purchaseValue: number | null; careNotes: string; hasPhoto: boolean; photoUrl: string | null; timesCleaned: number; lastCleanedAt: string | null; inCleaning: boolean; acquiredOn: string | null; location: string; depreciation: Depreciation; createdAt: string }
+export interface Depreciation { ageMonths: number; lifespanMonths: number; remainingShare: number; currentValue: number | null; totalOriginal: number | null; totalCurrent: number | null; replaceSuggested: boolean; monthsLeft: number }
+export interface WardrobeStats { items: number; pieces: number; totalValue: number; currentValue: number; clothes: number; shoes: number; withPhotos: number; toReplace: number; locations: string[] }
 export interface Slot { id: string; startsAt: string; endsAt: string; remaining: number; available: boolean }
 export interface AppConfig { features: { emailPasswordReset: boolean; photos: boolean; mobileMoney: { provider: string; testMode: boolean } | null }; support: { phone: string; whatsapp: string } }
 export interface Payment { id: string; orderId: string | null; subscriptionId: string | null; amount: number; method: string; provider: string | null; testMode: boolean; status: string; refundedAmount: number; payerMsisdnMasked: string | null; manualReference: string | null; createdAt: string }

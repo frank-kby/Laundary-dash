@@ -33,6 +33,10 @@ export function userDto(u: any) {
     phone: u.phone,
     role: u.role,
     preferredLanguage: u.preferred_language,
+    accountType: u.account_type ?? 'PERSONAL',
+    gender: u.gender ?? null,
+    businessName: u.business_name ?? null,
+    businessType: u.business_type ?? null,
     isDemo: u.is_demo,
     createdAt: u.created_at,
   };
@@ -41,6 +45,25 @@ export function userDto(u: any) {
 export const authRouter = Router();
 authRouter.use(authIpLimiter);
 
+export const BUSINESS_TYPES = ['APARTMENTS', 'HOTEL', 'CLOTHES_RENTAL', 'RESTAURANT', 'SALON_SPA', 'OTHER'] as const;
+/** Optional profile details: personal vs business account, gender (for relevant clothing categories). */
+export const profileFields = {
+  accountType: z.enum(['PERSONAL', 'BUSINESS']).optional(),
+  gender: z.enum(['FEMALE', 'MALE']).nullable().optional(),
+  businessName: z.string().trim().max(100).nullable().optional(),
+  businessType: z.enum(BUSINESS_TYPES).nullable().optional(),
+};
+/** Business accounts need a business name; personal accounts don't keep business details. */
+export function resolveProfile(b: { accountType?: string; gender?: string | null; businessName?: string | null; businessType?: string | null }, cur?: any) {
+  const accountType = b.accountType ?? cur?.account_type ?? 'PERSONAL';
+  const gender = b.gender === undefined ? cur?.gender ?? null : b.gender;
+  let businessName = b.businessName === undefined ? cur?.business_name ?? null : b.businessName || null;
+  let businessType = b.businessType === undefined ? cur?.business_type ?? null : b.businessType;
+  if (accountType === 'BUSINESS' && !businessName) throw badRequest('Please enter your business name.', [{ path: 'businessName', message: 'required' }]);
+  if (accountType === 'PERSONAL') { businessName = null; businessType = null; }
+  return { accountType, gender, businessName, businessType };
+}
+
 const registerSchema = z.object({
   fullName: z.string().trim().min(2, 'Please enter your name.').max(100),
   email: z.string().trim().max(254).optional().or(z.literal('')),
@@ -48,6 +71,7 @@ const registerSchema = z.object({
   password: passwordSchema,
   preferredLanguage: z.enum(['en', 'rw']).default('en'),
   keepMeLoggedIn: z.boolean().default(false),
+  ...profileFields,
 });
 
 authRouter.post('/register', async (req, res) => {
@@ -58,14 +82,15 @@ authRouter.post('/register', async (req, res) => {
   if (body.phone && !phoneN) throw badRequest('Please enter a valid phone number, e.g. 078 123 4567.', [{ path: 'phone', message: 'invalid' }]);
   if (!emailN && !phoneN) throw badRequest('Enter an email address or a phone number.');
 
+  const profile = resolveProfile(body);
   const passwordHash = await hashPassword(body.password);
   try {
     const user = await tx(async (c) => {
       const u = await one(
         c,
-        `INSERT INTO users (email, phone, password_hash, full_name, preferred_language)
-         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-        [emailN, phoneN, passwordHash, body.fullName, body.preferredLanguage],
+        `INSERT INTO users (email, phone, password_hash, full_name, preferred_language, account_type, gender, business_name, business_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [emailN, phoneN, passwordHash, body.fullName, body.preferredLanguage, profile.accountType, profile.gender, profile.businessName, profile.businessType],
       );
       await createSession(c, res, u.id, body.keepMeLoggedIn, req.get('user-agent'));
       await audit(c, { actorId: u.id, action: 'user.register', entityType: 'user', entityId: u.id, ip: req.ip });

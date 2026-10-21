@@ -14,16 +14,30 @@ async function assertMobileFriendly(page: Page) {
   expect(small, 'controls shorter than 44px').toEqual([]);
 }
 
-test('auth screens fit small phones and switch to Kinyarwanda', async ({ page }) => {
+test('welcome screens fit small phones and switch to Kinyarwanda', async ({ page }) => {
   await page.goto('/login');
+  await expect(page.getByRole('tab', { name: 'Sign in' })).toHaveAttribute('aria-selected', 'true');
   await assertMobileFriendly(page);
   await page.getByRole('button', { name: /RW/ }).click();
-  await expect(page.getByRole('heading', { name: 'Injira' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Imyenda isukuye, nta mvune' })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'rw');
-  await page.getByRole('link', { name: 'Fungura konti' }).click();
+  await page.getByRole('tab', { name: 'Fungura konti' }).click();
+  await expect(page.getByRole('tab', { name: 'Fungura konti' })).toHaveAttribute('aria-selected', 'true');
   await assertMobileFriendly(page);
   await page.getByRole('button', { name: /EN/ }).click();
-  await expect(page.getByRole('heading', { name: 'Create account' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Fresh clothes, zero hassle' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create account' })).toBeVisible();
+});
+
+test('guests can open the app without an account', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Welcome to Laundry Dash' })).toBeVisible();
+  await assertMobileFriendly(page);
+  for (const [tab, heading] of [['Bookings', 'Follow every order'], ['Account', 'Your account']] as const) {
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: tab }).click();
+    await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+    await assertMobileFriendly(page);
+  }
 });
 
 test('customer screens fit small phones and load quickly', async ({ page }) => {

@@ -4,9 +4,10 @@ import { del, patch, post } from '../../api';
 import { useAuth } from '../../auth';
 import { useCatalog, useLocalName } from '../../catalog';
 import { useI18n, type Lang } from '../../i18n';
-import type { Address, Paged, Payment, Plan, User } from '../../types';
+import { BUSINESS_TYPES, type AccountType, type Address, type Gender, type Paged, type Payment, type Plan, type User } from '../../types';
+import { AuthSheet } from './Auth';
 import { PageTitle } from '../../components/Layout';
-import { Badge, Button, ErrorBox, Loading, Notice, payTone, SelectField, Sheet, TextField, useLoad } from '../../components/ui';
+import { Badge, Button, ErrorBox, Loading, Notice, payTone, SelectField, Sheet, TextField, useLoad, useToast } from '../../components/ui';
 import { PayPanel } from './Orders';
 
 function AddressForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
@@ -45,6 +46,74 @@ function AddressForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
         <Button type="submit" busy={busy}>{t('common.save')}</Button>
       </div>
     </form>
+  );
+}
+
+function ProfileCard() {
+  const { t } = useI18n();
+  const { user, setUser } = useAuth();
+  const toast = useToast();
+  const [f, setF] = useState({
+    accountType: (user?.accountType ?? 'PERSONAL') as AccountType,
+    gender: (user?.gender ?? null) as Gender | null,
+    businessName: user?.businessName ?? '',
+    businessType: user?.businessType ?? '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await patch<{ user: User }>('/me', {
+        accountType: f.accountType,
+        gender: f.accountType === 'PERSONAL' ? f.gender : user?.gender ?? null,
+        businessName: f.accountType === 'BUSINESS' ? f.businessName : null,
+        businessType: f.accountType === 'BUSINESS' && f.businessType ? f.businessType : null,
+      });
+      setUser(r.user);
+      toast(t('account.profileSaved'));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section>
+      <h2>{t('account.profile')}</h2>
+      <form className="stack panel" onSubmit={save} noValidate>
+        <div className="segmented" role="radiogroup" aria-label={t('auth.accountType')}>
+          {(['PERSONAL', 'BUSINESS'] as const).map((k) => (
+            <button key={k} type="button" role="radio" aria-checked={f.accountType === k} className={f.accountType === k ? 'on' : ''} onClick={() => setF({ ...f, accountType: k })}>
+              {t(k === 'PERSONAL' ? 'auth.personal' : 'auth.business')}
+            </button>
+          ))}
+        </div>
+        {f.accountType === 'BUSINESS' ? (
+          <div className="reveal stack">
+            <TextField label={t('auth.businessName')} value={f.businessName} onChange={(e) => setF({ ...f, businessName: e.target.value })} required maxLength={100} />
+            <SelectField label={t('auth.businessType')} optional value={f.businessType} onChange={(e) => setF({ ...f, businessType: e.target.value as typeof f.businessType })}>
+              <option value="">—</option>
+              {BUSINESS_TYPES.map((b) => <option key={b} value={b}>{t(`biz.${b}`)}</option>)}
+            </SelectField>
+          </div>
+        ) : (
+          <fieldset>
+            <legend className="label">{t('auth.gender')} <span className="optional">({t('common.optional')})</span></legend>
+            <div className="chips chips-wrap" role="radiogroup">
+              {([['FEMALE', 'gender.FEMALE'], ['MALE', 'gender.MALE'], [null, 'gender.ANY']] as const).map(([g, key]) => (
+                <button key={key} type="button" role="radio" aria-checked={f.gender === g} aria-pressed={f.gender === g} className="chip" onClick={() => setF({ ...f, gender: g })}>{t(key)}</button>
+              ))}
+            </div>
+            <p className="hint">{t('auth.genderHint')}</p>
+          </fieldset>
+        )}
+        <ErrorBox error={error} />
+        <Button type="submit" busy={busy}>{t('common.save')}</Button>
+      </form>
+    </section>
   );
 }
 
@@ -95,6 +164,8 @@ export function AccountPage() {
   return (
     <div className="stack-lg">
       <PageTitle>{t('account.title')}</PageTitle>
+
+      <ProfileCard />
 
       <section>
         <h2>{t('account.notifications')}</h2>
@@ -172,8 +243,10 @@ export function AccountPage() {
 export function SubscriptionPage() {
   const { t, money, date, lang } = useI18n();
   const name = useLocalName();
+  const { user } = useAuth();
   const plans = useLoad<{ items: Plan[] }>('/subscription-plans');
-  const cur = useLoad<{ active: any; upcoming: any[]; usage: any[] }>('/subscriptions/current');
+  const cur = useLoad<{ active: any; upcoming: any[]; usage: any[] }>(user ? '/subscriptions/current' : null);
+  const [askAuthFor, setAskAuthFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const pending = cur.data?.upcoming.find((s) => s.status === 'PENDING_PAYMENT');
@@ -233,10 +306,17 @@ export function SubscriptionPage() {
                 {p.overageDiscountPercent > 0 && <li>{t('sub.overage', { p: p.overageDiscountPercent })}</li>}
                 <li>{t('sub.validity', { days: p.validityDays })}</li>
               </ul>
-              <Button busy={busy} onClick={() => act(() => post('/subscriptions', { planId: p.id }))}>{t('sub.choose')}</Button>
+              <Button busy={busy} onClick={() => (user ? act(() => post('/subscriptions', { planId: p.id })) : setAskAuthFor(p.id))}>{t('sub.choose')}</Button>
             </li>
           ))}
         </ul>
+      )}
+      {askAuthFor && (
+        <AuthSheet
+          title={t('gate.plan.title')}
+          onClose={() => setAskAuthFor(null)}
+          onAuthed={() => { const id = askAuthFor; setAskAuthFor(null); act(() => post('/subscriptions', { planId: id })); }}
+        />
       )}
     </div>
   );

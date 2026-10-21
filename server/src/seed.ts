@@ -14,18 +14,32 @@ import { priceOrder } from './domain/pricing.js';
 
 export const DEMO_PASSWORD = 'LaundryDemo2026!';
 
+// [code, kind, nameEn, nameRw, gender, segment, lifespanMonths] — lifespan drives straight-line depreciation.
 const categories = [
-  ['SHIRT', 'CLOTHES', 'Shirts', 'Amashati'],
-  ['TSHIRT', 'CLOTHES', 'T-shirts', 'Imipira'],
-  ['TROUSERS', 'CLOTHES', 'Trousers', 'Amapantaro'],
-  ['DRESS', 'CLOTHES', 'Dresses', 'Amakanzu'],
-  ['JACKET', 'CLOTHES', 'Jackets & suits', 'Amakoti'],
-  ['OTHER_CLOTHES', 'CLOTHES', 'Other clothes', 'Indi myenda'],
-  ['SNEAKERS', 'SHOES', 'Sneakers', 'Inkweto za siporo'],
-  ['FORMAL_SHOES', 'SHOES', 'Formal shoes', 'Inkweto z’ibirori'],
-  ['SANDALS', 'SHOES', 'Sandals', 'Sandali'],
-  ['BOOTS', 'SHOES', 'Boots', 'Botine'],
-  ['OTHER_SHOES', 'SHOES', 'Other shoes', 'Izindi nkweto'],
+  ['SHIRT', 'CLOTHES', 'Shirts', 'Amashati', 'ANY', 'PERSONAL', 36],
+  ['TSHIRT', 'CLOTHES', 'T-shirts', 'Imipira', 'ANY', 'PERSONAL', 24],
+  ['TROUSERS', 'CLOTHES', 'Trousers', 'Amapantaro', 'ANY', 'PERSONAL', 36],
+  ['DRESS', 'CLOTHES', 'Dresses', 'Amakanzu', 'FEMALE', 'PERSONAL', 48],
+  ['JACKET', 'CLOTHES', 'Jackets & suits', 'Amakoti', 'ANY', 'PERSONAL', 60],
+  ['OTHER_CLOTHES', 'CLOTHES', 'Other clothes', 'Indi myenda', 'ANY', 'PERSONAL', 36],
+  ['SNEAKERS', 'SHOES', 'Sneakers', 'Inkweto za siporo', 'ANY', 'PERSONAL', 24],
+  ['FORMAL_SHOES', 'SHOES', 'Formal shoes', 'Inkweto z’ibirori', 'ANY', 'PERSONAL', 48],
+  ['SANDALS', 'SHOES', 'Sandals', 'Sandali', 'ANY', 'PERSONAL', 24],
+  ['BOOTS', 'SHOES', 'Boots', 'Botine', 'ANY', 'PERSONAL', 48],
+  ['OTHER_SHOES', 'SHOES', 'Other shoes', 'Izindi nkweto', 'ANY', 'PERSONAL', 36],
+  ['BLOUSE', 'CLOTHES', 'Blouses', 'Amakoti y’abagore', 'FEMALE', 'PERSONAL', 36],
+  ['SKIRT', 'CLOTHES', 'Skirts', 'Amajipo', 'FEMALE', 'PERSONAL', 36],
+  ['MUSHANANA', 'CLOTHES', 'Mushanana & traditional wear', 'Imishanana n’imyambaro gakondo', 'FEMALE', 'PERSONAL', 72],
+  ['TIE', 'CLOTHES', 'Ties', 'Amakaravati', 'MALE', 'PERSONAL', 60],
+  ['HEELS', 'SHOES', 'Heels', 'Inkweto ndende', 'FEMALE', 'PERSONAL', 36],
+  ['BED_SHEET', 'CLOTHES', 'Bed sheets', 'Amashuka', 'ANY', 'BUSINESS', 24],
+  ['DUVET_COVER', 'CLOTHES', 'Duvet covers', 'Imyenda y’ibiringiti', 'ANY', 'BUSINESS', 36],
+  ['PILLOWCASE', 'CLOTHES', 'Pillowcases', 'Imyenda y’imisego', 'ANY', 'BUSINESS', 24],
+  ['TOWEL', 'CLOTHES', 'Towels', 'Amasume', 'ANY', 'BUSINESS', 24],
+  ['BATHROBE', 'CLOTHES', 'Bathrobes', 'Amakanzu yo kwiyuhagiriramo', 'ANY', 'BUSINESS', 36],
+  ['TABLE_LINEN', 'CLOTHES', 'Tablecloths & napkins', 'Imyenda y’ameza', 'ANY', 'BUSINESS', 36],
+  ['CURTAIN', 'CLOTHES', 'Curtains', 'Amarido', 'ANY', 'BUSINESS', 60],
+  ['UNIFORM', 'CLOTHES', 'Uniforms', 'Impuzankano', 'ANY', 'BUSINESS', 24],
 ] as const;
 
 // [code, nameEn, nameRw, descEn, descRw, kind, unit, price, min, hours, categoryOverrides]
@@ -62,11 +76,12 @@ const plans = [
 ];
 
 export async function seedCatalogue() {
-  for (const [i, [code, kind, en, rw]] of categories.entries()) {
+  for (const [i, [code, kind, en, rw, gender, segment, lifespan]] of categories.entries()) {
+    // Existing categories are left alone so admin edits (names, lifespans, gender) are never overwritten.
     await pool.query(
-      `INSERT INTO garment_categories (code, kind, name_en, name_rw, sort_order) VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (code) DO UPDATE SET kind = EXCLUDED.kind, sort_order = EXCLUDED.sort_order`,
-      [code, kind, en, rw, i],
+      `INSERT INTO garment_categories (code, kind, name_en, name_rw, gender, segment, lifespan_months, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (code) DO NOTHING`,
+      [code, kind, en, rw, gender, segment, lifespan, i],
     );
   }
   const catIds = Object.fromEntries((await q(pool, 'SELECT code, id FROM garment_categories')).map((r) => [r.code, r.id]));

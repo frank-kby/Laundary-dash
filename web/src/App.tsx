@@ -1,11 +1,12 @@
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
 import { I18nProvider } from './i18n';
 import type { Role } from './types';
 import { CustomerLayout } from './components/Layout';
 import { Loading, ToastProvider } from './components/ui';
-import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage } from './pages/customer/Auth';
+import { ForgotPasswordPage, GuestGate, LoginPage, RegisterPage, ResetPasswordPage } from './pages/customer/Auth';
+import { useI18n } from './i18n';
 import { HomePage } from './pages/customer/Home';
 import { BookPage } from './pages/customer/Book';
 import { BookingsPage, OrderPage } from './pages/customer/Orders';
@@ -24,12 +25,38 @@ const StaffOrdersPage = lazy(() => import('./pages/staff/StaffOrders').then((m) 
 const StaffOrderPage = lazy(() => import('./pages/staff/StaffOrders').then((m) => ({ default: m.StaffOrderPage })));
 const RiderPage = lazy(() => import('./pages/rider/Rider').then((m) => ({ default: m.RiderPage })));
 
+/** New screens start at the top (the browser would otherwise keep the previous screen's scroll position). */
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+  }, [pathname]);
+  return null;
+}
+
 function Guard({ roles, children }: { roles?: Role[]; children: ReactNode }) {
   const { user, loading } = useAuth();
   const loc = useLocation();
   if (loading) return <Loading />;
   if (!user) return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
   if (roles && !roles.includes(user.role)) return <Navigate to={user.role === 'RIDER' ? '/rider' : '/'} replace />;
+  return <>{children}</>;
+}
+
+/** Guests see an inviting sign-up screen instead of members-only content. */
+function Members({ gate, children }: { gate: 'wardrobe' | 'bookings' | 'account'; children: ReactNode }) {
+  const { user, loading } = useAuth();
+  const { t } = useI18n();
+  if (loading) return <Loading />;
+  if (!user) return <GuestGate title={t(`gate.${gate}.title`)} body={t(`gate.${gate}.body`)} />;
+  return <>{children}</>;
+}
+
+/** The customer area is open to guests; riders have their own screen. */
+function NotRider({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <Loading />;
+  if (user?.role === 'RIDER') return <Navigate to="/rider" replace />;
   return <>{children}</>;
 }
 
@@ -46,19 +73,20 @@ export function App() {
       <AuthProvider>
         <ToastProvider>
         <BrowserRouter>
+          <ScrollToTop />
           <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />
               <Route path="/register" element={<GuestOnly><RegisterPage /></GuestOnly>} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
-              <Route element={<Guard roles={['CUSTOMER', 'STAFF', 'ADMIN']}><CustomerLayout /></Guard>}>
+              <Route element={<NotRider><CustomerLayout /></NotRider>}>
                 <Route index element={<HomePage />} />
-                <Route path="wardrobe" element={<WardrobePage />} />
+                <Route path="wardrobe" element={<Members gate="wardrobe"><WardrobePage /></Members>} />
                 <Route path="book" element={<BookPage />} />
-                <Route path="bookings" element={<BookingsPage />} />
-                <Route path="orders/:id" element={<OrderPage />} />
-                <Route path="account" element={<AccountPage />} />
+                <Route path="bookings" element={<Members gate="bookings"><BookingsPage /></Members>} />
+                <Route path="orders/:id" element={<Guard roles={['CUSTOMER', 'STAFF', 'ADMIN']}><OrderPage /></Guard>} />
+                <Route path="account" element={<Members gate="account"><AccountPage /></Members>} />
                 <Route path="subscription" element={<SubscriptionPage />} />
               </Route>
               <Route path="/rider" element={<Guard roles={['RIDER']}><RiderPage /></Guard>} />
