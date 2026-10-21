@@ -1,3 +1,4 @@
+import { UpdateBanner } from './components/UpdateBanner';
 import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
@@ -74,6 +75,7 @@ export function App() {
         <ToastProvider>
         <BrowserRouter>
           <ScrollToTop />
+          <UpdateBanner />
           <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />

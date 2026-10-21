@@ -104,6 +104,8 @@ export const en = {
   'install.android': 'Install the Laundry Dash app on this phone.',
   'install.button': 'Install',
   'install.dismiss': 'Not now',
+  'update.ready': 'A new version of Laundry Dash is ready.',
+  'update.button': 'Update',
   'auth.signIn': 'Sign in',
   'auth.signOut': 'Sign out',
   'auth.register': 'Create account',

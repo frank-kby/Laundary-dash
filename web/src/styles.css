@@ -699,3 +699,6 @@ details summary { cursor: pointer; font-weight: 700; color: var(--rinse); min-he
 @keyframes shine { 0%, 82% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
 @keyframes streak { 0% { opacity: 0; transform: translateX(-40px) scaleX(.4); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateX(60px) scaleX(1); } }
 @keyframes chipIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+
+.update-banner { position: fixed; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top) + 64px); z-index: 60; display: flex; align-items: center; gap: .75rem; background: var(--ink); color: #fff; padding: .5rem .5rem .5rem 1rem; border-radius: var(--r-pill); box-shadow: var(--shadow-2); font-weight: 700; font-size: .92rem; width: max-content; max-width: calc(100vw - 2rem); }
+.update-banner .btn { min-height: 40px; padding: .3rem 1rem; }

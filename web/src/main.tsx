@@ -4,6 +4,9 @@ import { App } from './App';
 import '@fontsource-variable/figtree/wght.css';
 import '@fontsource-variable/bricolage-grotesque/wght.css';
 import './styles.css';
+import { startUpdates } from './components/UpdateBanner';
+
+startUpdates();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

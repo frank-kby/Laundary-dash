@@ -107,6 +107,8 @@ export const rw: Partial<Record<MessageKey, string>> = {
   'install.android': 'Shyira porogaramu ya Laundry Dash kuri iyi telefoni.',
   'install.button': 'Shyiraho',
   'install.dismiss': 'Si ubu',
+  'update.ready': 'Verisiyo nshya ya Laundry Dash irahari.',
+  'update.button': 'Vugurura',
   'auth.signIn': 'Injira',
   'auth.signOut': 'Sohoka',
   'auth.register': 'Fungura konti',

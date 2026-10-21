@@ -6,8 +6,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'script-defer', // external script, compatible with the strict CSP (no inline JS)
+      registerType: 'prompt', // registration + update policy live in src/components/UpdateBanner.tsx
+      injectRegister: false,
       includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
         id: '/',
