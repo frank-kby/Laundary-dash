@@ -48,11 +48,21 @@ export function LangSwitch() {
   );
 }
 
+/** The Laundry Dash Dry Cleaners logo (dark blue artwork, so it always sits on a light surface). */
+export function Logo({ height, className = '' }: { height: number; className?: string }) {
+  const width = Math.round((height * 337) / 228);
+  return (
+    <picture className={className}>
+      <source srcSet="/logo.webp" type="image/webp" />
+      <img src="/logo.png" alt="Laundry Dash Dry Cleaners" width={width} height={height} decoding="async" />
+    </picture>
+  );
+}
+
 export function Brand() {
   return (
     <span className="brand">
-      <img src="/favicon.png" alt="" width={28} height={28} />
-      Laundry Dash
+      <span className="brand-chip"><Logo height={34} /></span>
     </span>
   );
 }

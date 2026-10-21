@@ -4,7 +4,7 @@ import { ApiError, post } from '../../api';
 import { useAuth } from '../../auth';
 import { useI18n } from '../../i18n';
 import { BUSINESS_TYPES, type AccountType, type Gender, type User } from '../../types';
-import { LangSwitch, OfflineBanner, PlainLayout } from '../../components/Layout';
+import { LangSwitch, Logo, OfflineBanner, PlainLayout } from '../../components/Layout';
 import { Button, Checkbox, ErrorBox, Notice, SelectField, Sheet, TextField } from '../../components/ui';
 import { SupportLinks } from './Home';
 import { isStandalone } from '../../components/InstallHint';
@@ -182,16 +182,12 @@ function WelcomeHero() {
         ))}
       </div>
       <div className="welcome-top">
-        <span className="brand"><img src="/favicon.png" alt="" width={30} height={30} />Laundry Dash</span>
         <LangSwitch />
       </div>
-      <svg className="welcome-line" viewBox="0 0 360 120" aria-hidden="true" preserveAspectRatio="xMidYMin meet">
-        <path d="M-10 18 Q180 58 370 18" fill="none" stroke="rgba(255,255,255,.6)" strokeWidth="2" />
-        <g className="g"><rect x="62" y="24" width="6" height="12" rx="2" fill="#fff" /><path d="M46 34 L58 29 Q65 37 72 29 L84 34 L94 48 L86 54 L83 50 L83 92 L57 92 L57 50 L54 54 L46 48 Z" fill="#f5c443" /></g>
-        <g className="g"><rect x="139" y="34" width="6" height="12" rx="2" fill="#fff" /><path d="M130 44 L139 44 Q142 49 145 44 L154 44 L157 64 L172 112 L112 112 L127 64 Z" fill="#9ccbf3" /></g>
-        <g className="g"><rect x="214" y="36" width="6" height="12" rx="2" fill="#fff" /><path d="M199 44 L235 44 L238 106 L222 106 L217 66 L212 106 L196 106 Z" fill="#ffffff" /></g>
-        <g className="g"><rect x="289" y="26" width="6" height="12" rx="2" fill="#fff" /><path d="M272 34 L284 30 L292 52 L300 30 L312 34 L326 48 L320 98 L304 98 L292 56 L280 98 L264 98 L258 48 Z" fill="#10a08f" /></g>
-      </svg>
+      <div className="logo-stage">
+        <div className="logo-streaks" aria-hidden="true"><span /><span /><span /></div>
+        <div className="logo-badge"><Logo height={128} /></div>
+      </div>
       <div className="welcome-copy">
         <h1>{t('auth.welcomeTitle')}</h1>
         <p>{t('auth.welcomeBody')}</p>

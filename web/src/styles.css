@@ -670,3 +670,32 @@ details summary { cursor: pointer; font-weight: 700; color: var(--rinse); min-he
   .shell-staff .page-wide { padding-left: 1rem; padding-right: 1rem; }
 }
 .data.keep-table input[type="number"] { width: 90px; }
+
+/* ---------- Logo ---------- */
+.brand-chip { display: inline-flex; align-items: center; background: #fff; border-radius: 12px; padding: 3px 8px; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 4px 14px rgba(0,0,0,.18); }
+.brand-chip img { display: block; height: 34px; width: auto; }
+.welcome-top { justify-content: flex-end; }
+.logo-stage { position: relative; display: flex; justify-content: center; max-width: 520px; margin: 10px auto 18px; }
+.logo-badge { position: relative; background: #fff; border-radius: 28px; padding: 14px 24px 12px; box-shadow: 0 18px 40px rgba(5, 10, 40, .35); overflow: hidden; }
+.logo-badge img { display: block; height: 128px; width: auto; max-width: 62vw; object-fit: contain; }
+.logo-streaks { position: absolute; inset: 0; pointer-events: none; }
+.logo-streaks span { position: absolute; left: 4%; height: 4px; border-radius: 4px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.75)); opacity: 0; }
+.logo-streaks span:nth-child(1) { top: 34%; width: 30%; }
+.logo-streaks span:nth-child(2) { top: 50%; width: 22%; left: 8%; }
+.logo-streaks span:nth-child(3) { top: 66%; width: 26%; }
+@media (prefers-reduced-motion: no-preference) {
+  .logo-badge { animation: badgeIn .55s cubic-bezier(.2,.9,.25,1.15) both, badgeFloat 6s ease-in-out 1.4s infinite; }
+  .logo-badge img { animation: dashIn .8s cubic-bezier(.15,.85,.25,1) .18s both; }
+  .logo-badge::after { content: ''; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.85) 48%, transparent 62%); transform: translateX(-120%); animation: shine 7s ease-in-out 1.1s infinite; }
+  .logo-streaks span { animation: streak .7s ease-out both; }
+  .logo-streaks span:nth-child(1) { animation-delay: .12s; }
+  .logo-streaks span:nth-child(2) { animation-delay: .2s; }
+  .logo-streaks span:nth-child(3) { animation-delay: .28s; }
+  .brand-chip img { animation: chipIn .5s var(--ease) both; }
+}
+@keyframes badgeIn { from { opacity: 0; transform: translateY(14px) scale(.92); } to { opacity: 1; transform: none; } }
+@keyframes badgeFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes dashIn { 0% { opacity: 0; transform: translateX(-70px) skewX(-14deg); filter: blur(5px); } 65% { opacity: 1; transform: translateX(5px) skewX(3deg); filter: blur(0); } 100% { transform: none; } }
+@keyframes shine { 0%, 82% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+@keyframes streak { 0% { opacity: 0; transform: translateX(-40px) scaleX(.4); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateX(60px) scaleX(1); } }
+@keyframes chipIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
