@@ -82,7 +82,7 @@ function GuestHome() {
       <section aria-labelledby="how-h">
         <h2 id="how-h">{t('home.howTitle')}</h2>
         <ol className="how">
-          {(['home.how1', 'home.how2', 'home.how3', 'home.how4'] as const).map((k, i) => (
+          {(['home.how1', 'home.how2', 'home.how4', 'home.how3'] as const).map((k, i) => (
             <li key={k}><span className="how-n" aria-hidden="true">{i + 1}</span><span>{t(k)}</span></li>
           ))}
         </ol>
